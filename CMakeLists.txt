@@ -35,7 +35,7 @@ target_include_directories(ntfs-driver PRIVATE
 target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads)
 if(BUILD_TESTING)
  add_executable(ntfs-module-test tests/test_module.c)
- target_include_directories(ntfs-module-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")
+ target_include_directories(ntfs-module-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include")
  target_link_libraries(ntfs-module-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-module-contract COMMAND ntfs-module-test)
 endif()
