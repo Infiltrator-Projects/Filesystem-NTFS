@@ -1,0 +1,17 @@
+name: Build independent NTFS SO
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  ntfs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev cmake
+      - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+      - run: cmake --build build --parallel 2
+      - run: ctest --test-dir build --output-on-failure
+      - run: |
+          test -f build/NTFS.so
+          nm -D build/NTFS.so | grep infiltrator_filesystem_ntfs_v1
