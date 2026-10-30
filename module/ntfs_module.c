@@ -9,7 +9,15 @@ static int run(int argc, char **argv, const IfsDefragServicesV1 *services) {
  ifs_unbind_services();
  return result;
 }
+int ifs_ntfs_fixture_run(const void *,const char *,int,const void *);
+static int fixture(const void *spec,const char *path,int create,
+ const IfsDefragServicesV1 *services,const IfsNtfsFixtureHostV1 *host) {
+ if(ifs_bind_services(services)!=0)return -1;
+ int result=ifs_ntfs_fixture_run(spec,path,create,host);
+ ifs_unbind_services();
+ return result;
+}
 static const IfsNtfsModuleV1 api = {
- IFS_NTFS_MODULE_V1,sizeof(IfsNtfsModuleV1),"ntfs",IFS_NTFS_CAP_RUN,run
+ IFS_NTFS_MODULE_V1,sizeof(IfsNtfsModuleV1),"ntfs",IFS_NTFS_CAP_RUN | IFS_NTFS_CAP_FIXTURE,run,fixture
 };
 const IfsNtfsModuleV1 *infiltrator_filesystem_ntfs_v1(void) { return &api; }

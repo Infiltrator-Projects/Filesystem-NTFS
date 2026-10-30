@@ -7,7 +7,7 @@ int main(void) {
  if (!a || a->abi_version!=IFS_NTFS_MODULE_V1 ||
      a->structure_bytes<sizeof(*a) ||
      !a->format_id || strcmp(a->format_id,"ntfs") ||
-     a->capabilities!=IFS_NTFS_CAP_RUN || !a->run) {
+     a->capabilities!=(IFS_NTFS_CAP_RUN | IFS_NTFS_CAP_FIXTURE) || !a->run || !a->fixture) {
     fputs("invalid NTFS.so ABI\n",stderr); return 1;
  }
  return 0;
