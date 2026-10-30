@@ -1,0 +1,73 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [5 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 6 0 R >>
+endobj
+6 0 obj
+<< /Length 2938 >>
+stream
+0.06 0.12 0.20 rg 0 744 595 98 re f
+0.02 0.58 0.60 rg 48 741 87 4 re f
+BT /F2 12 Tf 0.65 0.87 0.91 rg 1 0 0 1 48 801 Tm (INFILTRATOR / FILESYSTEMS) Tj ET
+BT /F2 20 Tf 1 1 1 rg 1 0 0 1 48 771 Tm (NTFS - format and project guide) Tj ET
+0.94 0.97 0.97 rg 48 674 498 46 re f
+BT /F2 14 Tf 0.02 0.42 0.47 rg 1 0 0 1 61 699 Tm (PRE-RELEASE DOCUMENTATION) Tj ET
+BT /F1 10 Tf 0.07 0.14 0.24 rg 1 0 0 1 61 683 Tm (No qualified standalone package or native installer is published.) Tj ET
+BT /F2 14 Tf 0.07 0.14 0.24 rg 1 0 0 1 48 642 Tm (WHAT IS IT?) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 615 Tm (Windows New Technology File System, organised around a master file table and) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 596 Tm (metadata records.) Tj ET
+BT /F2 13 Tf 0.07 0.14 0.24 rg 1 0 0 1 48 549 Tm (CONCEPTUAL ON-DISK STRUCTURE) Tj ET
+BT /F1 10 Tf 0.35 0.42 0.47 rg 1 0 0 1 48 526 Tm (Format-specific structures vary; this is not a sector map.) Tj ET
+0.06 0.44 0.49 rg 48 445 116 62 re f
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 60 478 Tm (MEDIA) Tj ET
+BT /F1 9 Tf 0.9 0.96 0.97 rg 1 0 0 1 60 459 Tm (stage 1) Tj ET
+0.09 0.52 0.56 rg 175 445 116 62 re f
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 187 478 Tm (METADATA) Tj ET
+BT /F1 9 Tf 0.9 0.96 0.97 rg 1 0 0 1 187 459 Tm (stage 2) Tj ET
+0.12 0.62 0.57 rg 302 445 116 62 re f
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 314 478 Tm (ALLOCATION) Tj ET
+BT /F1 9 Tf 0.9 0.96 0.97 rg 1 0 0 1 314 459 Tm (stage 3) Tj ET
+0.16 0.42 0.53 rg 429 445 116 62 re f
+BT /F2 11 Tf 1 1 1 rg 1 0 0 1 441 478 Tm (PAYLOAD) Tj ET
+BT /F1 9 Tf 0.9 0.96 0.97 rg 1 0 0 1 441 459 Tm (stage 4) Tj ET
+BT /F2 14 Tf 0.07 0.14 0.24 rg 1 0 0 1 48 406 Tm (PROJECT STATUS) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 381 Tm (Filesystem-NTFS has an independent Infiltrator-Projects source repository.) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 362 Tm (Its published README does not establish a qualified standalone Debian or RUN) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 343 Tm (release. Driver capability, runtime integration and media-safety claims) Tj ET
+BT /F1 11 Tf 0.07 0.14 0.24 rg 1 0 0 1 49 324 Tm (require separate verification.) Tj ET
+BT /F2 14 Tf 0.07 0.14 0.24 rg 1 0 0 1 48 288 Tm (TARGET INSTALLATION LAYOUT) Tj ET
+0.94 0.97 0.97 rg 48 183 498 86 re f
+BT /F1 10 Tf 0.07 0.14 0.24 rg 1 0 0 1 62 247 Tm (/System/Filesystems/<qualified-module>.so) Tj ET
+BT /F1 10 Tf 0.07 0.14 0.24 rg 1 0 0 1 62 225 Tm (/System/Resources/Documentation/Filesystem-NTFS/) Tj ET
+BT /F2 11 Tf 0.02 0.48 0.52 rg 1 0 0 1 62 204 Tm (NTFS.pdf) Tj ET
+BT /F1 10 Tf 0.35 0.42 0.47 rg 1 0 0 1 48 149 Tm (This diagram is a future packaging target, NOT an installed release.) Tj ET
+BT /F1 10 Tf 0.07 0.14 0.24 rg 1 0 0 1 48 101 Tm (Engineering source and qualification reports belong in GitHub.) Tj ET
+0.82 0.85 0.86 rg 48 61 500 1 re f
+BT /F1 9 Tf 0.34 0.39 0.43 rg 1 0 0 1 48 40 Tm (Filesystem-NTFS  |  Preliminary user guide  |  30 October 2026) Tj ET
+endstream
+endobj
+xref
+0 7
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000185 00000 n 
+0000000260 00000 n 
+0000000396 00000 n 
+trailer
+<< /Size 7 /Root 1 0 R >>
+startxref
+3385
+%%EOF
