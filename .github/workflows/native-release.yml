@@ -28,6 +28,7 @@ jobs:
           FS_SO="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["module"])')"
           FS_REPO="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["repository"])')"
           FS_ABI="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["abi"])')"
+          FS_PDF="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["pdf"])')"
           run_file="$(find dist -maxdepth 1 -type f -name '*.run' -print -quit)"
           bash "$run_file" --profile aggressive --build-only --output "$RUNNER_TEMP/native"
           deb_file="$(find "$RUNNER_TEMP/native" -maxdepth 1 -type f -name '*.deb' -print -quit)"
@@ -40,7 +41,7 @@ jobs:
           dpkg-deb -x "$deb_file" "$RUNNER_TEMP/installed"
           test "$(find "$RUNNER_TEMP/installed" -type f | wc -l)" = 2
           test -s "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO"
-          test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO/$(basename "$FS_SO" .so).pdf"
+          test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO/$(basename "$FS_PDF")"
           readelf -Ws "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -F "$FS_ABI"
       - uses: actions/upload-artifact@v4
         with:
