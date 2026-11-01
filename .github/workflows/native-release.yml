@@ -1,0 +1,75 @@
+name: Qualify and release portable DEB and CPU-native source RUN
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build tools and pinned Common dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev
+      - name: Qualify portable Debian and embed exact source into native RUN
+        run: |
+          set -euo pipefail
+          bash -n packaging/native-release.sh
+          bash packaging/native-release.sh release
+          test "$(find dist -name '*.deb' | wc -l)" = 1
+          test "$(find dist -name '*.run' | wc -l)" = 1
+      - name: Prove source-embedded RUN creates CPU-native Debian with one SO and PDF
+        run: |
+          set -euo pipefail
+          source packaging/fs-release.conf
+          run_file="$(find dist -maxdepth 1 -type f -name '*.run' -print -quit)"
+          bash "$run_file" --profile aggressive --build-only --output "$RUNNER_TEMP/native"
+          deb_file="$(find "$RUNNER_TEMP/native" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          test -s "$deb_file"
+          test "$(dpkg-deb -f "$deb_file" X-Infiltrator-Native-Profile)" = aggressive
+          test "$(dpkg-deb -f "$deb_file" X-Infiltrator-PGO)" = trained-two-pass
+          test "$(dpkg-deb -f "$deb_file" X-Infiltrator-LTO)" = enabled
+          test "$(dpkg-deb -f "$deb_file" X-Infiltrator-Source-Revision)" = "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/installed"
+          dpkg-deb -x "$deb_file" "$RUNNER_TEMP/installed"
+          test "$(find "$RUNNER_TEMP/installed" -type f | wc -l)" = 2
+          test -s "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO"
+          test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO/$(basename "$FS_SO" .so).pdf"
+          readelf -Ws "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -F "$FS_ABI"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-filesystem-release
+          path: dist/*
+          if-no-files-found: error
+  publish:
+    needs: [qualify]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-filesystem-release
+          path: dist
+      - name: Publish immutable qualified installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v$version"
+          test "$(find dist -maxdepth 1 -type f -name '*.deb' | wc -l)" = 1
+          test "$(find dist -maxdepth 1 -type f -name '*.run' | wc -l)" = 1
+          if gh release view "$tag" --json tagName >/dev/null 2>&1; then
+            echo "Existing immutable release $tag retained"
+            exit 0
+          fi
+          gh release create "$tag" dist/*.deb dist/*.run --target "$GITHUB_SHA" \
+            --title "Independent filesystem native and portable installers $version" \
+            --notes "Portable DEB contains standard SO and illustrated PDF. Source-embedded RUN compiles the CPU-native SO with measured two-pass PGO and installs its own native Debian package. All artifacts were qualified from this exact source revision."
