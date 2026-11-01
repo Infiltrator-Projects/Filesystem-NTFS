@@ -23,10 +23,7 @@ jobs:
           stage="$(mktemp -d)"
           trap 'rm -rf "$stage"' EXIT
           DESTDIR="$stage" cmake --install build
-          actual="$(cd "$stage" && find . -type f -printf '%P\\n' | LC_ALL=C sort)"
-          expected="$(printf '%s\\n' 'System/Filesystems/NTFS.so' 'System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf' | LC_ALL=C sort)"
-          if [[ "$actual" != "$expected" ]]; then
-            printf 'Incorrect installed payload:\\n%s\\n' "$actual"
-            exit 1
-          fi
+          test "$(find "$stage" -type f | wc -l)" -eq 2
+          test -f "$stage/System/Filesystems/NTFS.so"
+          test -f "$stage/System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf"
           test "$(head -c 5 "$stage/System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf")" = '%PDF-'
