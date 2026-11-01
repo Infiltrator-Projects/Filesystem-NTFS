@@ -85,7 +85,7 @@ def build_deb(profile, dest):
             run(["dpkg-deb", "-x", dest, check])
             actual = sorted(str(p.relative_to(check)) for p in Path(check).rglob("*") if p.is_file())
             expected = sorted([f"System/Filesystems/{MODULE}",
-                               f"System/Resources/Documentation/{REPO}/FAT32.pdf"])
+                               f"System/Resources/Documentation/{REPO}/{PDF.name}"])
             if actual != expected:
                 raise RuntimeError("DEB must own one .so and one PDF: " + str(actual))
     return dest
