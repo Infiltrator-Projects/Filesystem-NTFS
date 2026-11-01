@@ -1,7 +1,7 @@
 name: Qualify and release portable DEB and CPU-native source RUN
 on:
   push:
-    branches: [main]
+    branches: [main, feature/python-native-packaging-20261101]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -18,8 +18,8 @@ jobs:
       - name: Qualify portable Debian and embed exact source into native RUN
         run: |
           set -euo pipefail
-          bash -n packaging/native-release.sh
-          bash packaging/native-release.sh release
+          python3 -m py_compile standalone/build.py standalone/release.py
+          python3 standalone/release.py release
           test "$(find dist -name '*.deb' | wc -l)" = 1
           test "$(find dist -name '*.run' | wc -l)" = 1
       - name: Prove source-embedded RUN creates CPU-native Debian with one SO and PDF
