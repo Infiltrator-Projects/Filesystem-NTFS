@@ -48,6 +48,8 @@ def build_deb(profile, dest):
         fsbuild.install_deps()
         flags = fsbuild.build(profile, module)
         fsbuild.test(module)
+        if hasattr(fsbuild, "cleanup_test_artifacts"):
+            fsbuild.cleanup_test_artifacts(module)
         # The fixture test is an ephemeral QA executable, never a filesystem driver.
         # The fixture executable is removed by the standalone test harness.
         info_dir = root / "System/Resources/Documentation" / REPO
@@ -96,6 +98,8 @@ def source_files():
         paths = [Path(os.fsdecode(p)) for p in names.split(b"\0") if p]
     else:
         paths = [p.relative_to(ROOT) for p in ROOT.rglob("*") if p.is_file()]
+    if hasattr(fsbuild, "release_source_files"):
+        paths = fsbuild.release_source_files()
     # Source-exact self-contained archives, same deterministic PAX builder
     # as FAT/OFS. Never include a build result, a symlink, or a local Git dir.
     chosen = []
