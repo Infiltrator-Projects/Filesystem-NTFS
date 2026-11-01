@@ -1,7 +1,7 @@
 name: Qualify and release portable DEB and CPU-native source RUN
 on:
   push:
-    branches: [main]
+    branches: [main, feature/python-native-packaging-20261101]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -18,14 +18,17 @@ jobs:
       - name: Qualify portable Debian and embed exact source into native RUN
         run: |
           set -euo pipefail
-          bash -n packaging/native-release.sh
-          bash packaging/native-release.sh release
+          python3 -m py_compile standalone/build.py standalone/release.py
+          python3 standalone/release.py release
           test "$(find dist -name '*.deb' | wc -l)" = 1
           test "$(find dist -name '*.run' | wc -l)" = 1
       - name: Prove source-embedded RUN creates CPU-native Debian with one SO and PDF
         run: |
           set -euo pipefail
-          source packaging/fs-release.conf
+          FS_SO="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["module"])')"
+          FS_REPO="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["repository"])')"
+          FS_ABI="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["abi"])')"
+          FS_PDF="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["pdf"])')"
           run_file="$(find dist -maxdepth 1 -type f -name '*.run' -print -quit)"
           bash "$run_file" --profile aggressive --build-only --output "$RUNNER_TEMP/native"
           deb_file="$(find "$RUNNER_TEMP/native" -maxdepth 1 -type f -name '*.deb' -print -quit)"
@@ -38,7 +41,7 @@ jobs:
           dpkg-deb -x "$deb_file" "$RUNNER_TEMP/installed"
           test "$(find "$RUNNER_TEMP/installed" -type f | wc -l)" = 2
           test -s "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO"
-          test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO/$(basename "$FS_SO" .so).pdf"
+          test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO/$(basename "$FS_PDF")"
           readelf -Ws "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -F "$FS_ABI"
       - uses: actions/upload-artifact@v4
         with:
