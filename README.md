@@ -4,7 +4,7 @@ Independent filesystem implementation for InfiltratorOS, using the shared Common
 ## Installer files
 
 - `/System/Filesystems/NTFS.so`
-- `/System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf`
+- `/System/Resources/Documentation/Filesystem-NTFS.pdf`
 - `/System/Kernel/Filesystems/ntfs.ko`
 
 The published Debian package installs these three regular files. A manual native RUN compiles the shared object and Linux adapter locally, generates the PDF, and replaces all three files. It uses the running kernel headers by default. Use `--kernel-build DIRECTORY` for a prepared kernel build with `Module.symvers`. The kernel module is stored for manual use.

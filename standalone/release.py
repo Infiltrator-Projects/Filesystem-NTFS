@@ -57,9 +57,9 @@ def build_deb(profile, dest, kernel_target=None):
             fsbuild.cleanup_test_artifacts(module)
         # The fixture test is an ephemeral QA executable, never a filesystem driver.
         # The fixture executable is removed by the standalone test harness.
-        info_dir = root / "System/Resources/Documentation" / REPO
+        info_dir = root / "System/Resources/Documentation"
         info_dir.mkdir(parents=True)
-        manual = info_dir / PDF.name
+        manual = info_dir / (REPO + ".pdf")
         manual_builder.build(manual, ROOT / PDF.with_suffix(".pages"), VERSION)
         kernel_fields = ""
         if kernel_target:
@@ -96,7 +96,7 @@ def build_deb(profile, dest, kernel_target=None):
         with tempfile.TemporaryDirectory(prefix="filesystem-payload-check-") as check:
             run(["dpkg-deb", "-x", dest, check])
             actual = {p.relative_to(check) for p in Path(check).rglob("*") if p.is_symlink() or not p.is_dir()}
-            expected = {Path(f"System/Filesystems/{MODULE}"), Path(f"System/Resources/Documentation/{REPO}/{PDF.name}")}
+            expected = {Path(f"System/Filesystems/{MODULE}"), Path(f"System/Resources/Documentation/{REPO}.pdf")}
             if kernel_target:
                 expected.add(KERNEL_PATH)
             if actual != expected:
@@ -238,7 +238,7 @@ def install(rest):
         run(args)
         installed = Path("/System/Filesystems") / MODULE
         fsbuild.inspect(installed)
-        manual = Path("/System/Resources/Documentation") / REPO / PDF.name
+        manual = Path("/System/Resources/Documentation") / (REPO + ".pdf")
         if not manual.is_file() or manual.read_bytes()[:5] != b"%PDF-":
             raise RuntimeError("Installed filesystem PDF missing")
         control = subprocess.check_output(["dpkg-query", "-s", PACKAGE], text=True)

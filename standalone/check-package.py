@@ -22,8 +22,9 @@ with tempfile.TemporaryDirectory(prefix="filesystem-package-check-") as temporar
     root = Path(temporary)
     subprocess.run(["dpkg-deb", "-x", str(args.package), str(root)], check=True)
     module = root / "System/Filesystems" / build.NAME
-    manual = root / "System/Resources/Documentation" / build.REPO / build.PDF.name
+    manual = root / "System/Resources/Documentation" / (build.REPO + ".pdf")
     expected = {module, manual}
+    assert not any(p.is_dir() for p in manual.parent.iterdir())
     build.inspect(module)
     assert manual.read_bytes().startswith(b"%PDF-")
     assert fields["X-Infiltrator-Resource-SHA256"] == hashlib.sha256(module.read_bytes()).hexdigest()

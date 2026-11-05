@@ -25,5 +25,5 @@ jobs:
           DESTDIR="$stage" cmake --install build
           test "$(find "$stage" -type f | wc -l)" -eq 2
           test -f "$stage/System/Filesystems/NTFS.so"
-          test -f "$stage/System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf"
-          test "$(head -c 5 "$stage/System/Resources/Documentation/Filesystem-NTFS/NTFS.pdf")" = '%PDF-'
+          test -f "$stage/System/Resources/Documentation/Filesystem-NTFS.pdf"
+          test "$(head -c 5 "$stage/System/Resources/Documentation/Filesystem-NTFS.pdf")" = '%PDF-'

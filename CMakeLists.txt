@@ -50,4 +50,4 @@ endif()
 install(TARGETS ntfs-driver LIBRARY DESTINATION /System/Filesystems)
 # Runtime documentation: ship one PDF with this independent shared object.
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/docs/NTFS.pdf"
-        DESTINATION /System/Resources/Documentation/Filesystem-NTFS)
+        DESTINATION /System/Resources/Documentation RENAME Filesystem-NTFS.pdf)
