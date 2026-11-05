@@ -20,6 +20,7 @@ jobs:
           set -euo pipefail
           python3 -m py_compile standalone/build.py standalone/release.py
           python3 standalone/release.py release
+          python3 standalone/check-package.py dist/*.deb --profile portable
           test "$(find dist -name '*.deb' | wc -l)" = 1
           test "$(find dist -name '*.run' | wc -l)" = 1
       - name: Prove source-embedded RUN creates CPU-native Debian with one SO and PDF
@@ -30,7 +31,7 @@ jobs:
           FS_ABI="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["abi"])')"
           FS_PDF="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["pdf"])')"
           run_file="$(find dist -maxdepth 1 -type f -name '*.run' -print -quit)"
-          bash "$run_file" --profile aggressive --build-only --output "$RUNNER_TEMP/native"
+          bash "$run_file" --profile aggressive --system-package-mode --build-only --output "$RUNNER_TEMP/native"
           deb_file="$(find "$RUNNER_TEMP/native" -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -s "$deb_file"
           test "$(dpkg-deb -f "$deb_file" X-Infiltrator-Native-Profile)" = aggressive
@@ -48,8 +49,56 @@ jobs:
           name: native-filesystem-release
           path: dist/*
           if-no-files-found: error
+  kernel:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-filesystem-release
+          path: dist
+      - name: Prepare the pinned Linux build
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev bc bison flex libelf-dev kmod
+          curl --fail --location --retry 5 https://codeload.github.com/gregkh/linux/tar.gz/f717995cb7dcd8998ab15516b8006aea09cfde0d -o "$RUNNER_TEMP/linux.tar.gz"
+          mkdir -p "$RUNNER_TEMP/linux"
+          tar -xzf "$RUNNER_TEMP/linux.tar.gz" -C "$RUNNER_TEMP/linux" --strip-components=1
+          kernel="$RUNNER_TEMP/linux"
+          make -C "$kernel" defconfig
+          "$kernel/scripts/config" --file "$kernel/.config" --enable MODULES --disable WERROR --disable DEBUG_INFO
+          make -C "$kernel" olddefconfig
+          make -C "$kernel" -j2 bzImage modules
+          test -s "$kernel/Module.symvers"
+          test "$(make -s -C "$kernel" kernelrelease)" = 6.12.107
+      - name: Compile all three files through the manual RUN
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash dist/*.run --profile portable --kernel-build "$RUNNER_TEMP/linux" --build-only --output "$RUNNER_TEMP/manual"
+          python3 standalone/check-package.py "$RUNNER_TEMP"/manual/*.deb --profile portable --kernel-release 6.12.107
+          dpkg-deb -x "$RUNNER_TEMP"/manual/*.deb "$RUNNER_TEMP/manual-root"
+          dpkg-deb -x dist/*.deb "$RUNNER_TEMP/portable-root"
+          repository=$(python3 -c 'import sys; sys.path.insert(0,"standalone"); import build; print(build.REPO)')
+          identifier=$(printf '%s' "$repository" | sed 's/^Filesystem-//' | tr '[:upper:]' '[:lower:]')
+          manual=$(python3 -c 'import sys; sys.path.insert(0,"standalone"); import build; print(build.PDF.name)')
+          cmp "$RUNNER_TEMP/manual-root/System/Resources/Documentation/$repository/$manual" "$RUNNER_TEMP/portable-root/System/Resources/Documentation/$repository/$manual"
+          mkdir -p build/qualified
+          install -m 0644 "$RUNNER_TEMP/manual-root/System/Kernel/Filesystems/$identifier.ko" "build/qualified/$identifier-linux-6.12.107.ko"
+          package=$(find dist -maxdepth 1 -name '*.deb' -print -quit)
+          python3 standalone/release.py bundle-kernel "$package" "build/qualified/$identifier-linux-6.12.107.ko" "build/qualified/$(basename "$package")"
+          python3 standalone/check-package.py build/qualified/*.deb --profile portable --kernel-release 6.12.107
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qualified-kernel-package
+          path: build/qualified/*
+          if-no-files-found: error
   publish:
-    needs: [qualify]
+    needs: [qualify, kernel]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     permissions:
@@ -60,6 +109,17 @@ jobs:
         with:
           name: native-filesystem-release
           path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: qualified-kernel-package
+          path: kernel-qualified
+      - name: Include the qualified kernel module in the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 0644 kernel-qualified/*.deb dist/
+          install -m 0644 kernel-qualified/*.ko dist/
+          python3 standalone/check-package.py dist/*.deb --profile portable --kernel-release 6.12.107
       - name: Publish immutable qualified installers
         env:
           GH_TOKEN: ${{ github.token }}
@@ -73,6 +133,6 @@ jobs:
             echo "Existing immutable release $tag retained"
             exit 0
           fi
-          gh release create "$tag" dist/*.deb dist/*.run --target "$GITHUB_SHA" \
+          gh release create "$tag" dist/*.deb dist/*.run dist/*.ko --target "$GITHUB_SHA" \
             --title "Independent filesystem native and portable installers $version" \
-            --notes "Portable DEB contains standard SO and illustrated PDF. Source-embedded RUN compiles the CPU-native SO with measured two-pass PGO and installs its own native Debian package. All artifacts were qualified from this exact source revision."
+            --notes "Portable DEB contains the shared object, generated manual and Linux 6.12.107 adapter. The source-embedded RUN compiles the shared object and Linux adapter locally, generates the manual and installs all three regular files. InfiltratorOS checks and repairs its outputs independently."

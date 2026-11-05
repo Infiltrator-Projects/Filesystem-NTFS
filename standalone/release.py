@@ -13,6 +13,8 @@ import tarfile
 import tempfile
 
 import build as fsbuild
+import kernel
+import manual as manual_builder
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = fsbuild.REPO
@@ -24,6 +26,9 @@ VERSION = (ROOT / "VERSION").read_text().strip()
 if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", VERSION):
     raise SystemExit("Invalid standalone VERSION")
 DIST = ROOT / "dist"
+KERNEL_ID = SLUG.removeprefix("filesystem-")
+KERNEL_PATH = Path("System/Kernel/Filesystems") / (KERNEL_ID + ".ko")
+QUALIFIED_KERNEL = kernel.QUALIFIED_RELEASE
 
 def run(args):
     subprocess.run([str(a) for a in args], check=True)
@@ -40,7 +45,7 @@ def source_revision():
     return revision
 
 
-def build_deb(profile, dest):
+def build_deb(profile, dest, kernel_target=None):
     with tempfile.TemporaryDirectory(prefix=SLUG + "-package-") as tmp:
         root = Path(tmp) / "root"
         module = root / "System/Filesystems" / MODULE
@@ -55,9 +60,12 @@ def build_deb(profile, dest):
         info_dir = root / "System/Resources/Documentation" / REPO
         info_dir.mkdir(parents=True)
         manual = info_dir / PDF.name
-        shutil.copyfile(ROOT / PDF, manual)
-        if manual.read_bytes()[:5] != b"%PDF-":
-            raise RuntimeError("Missing valid illustrated PDF")
+        manual_builder.build(manual, ROOT / PDF.with_suffix(".pages"), VERSION)
+        kernel_fields = ""
+        if kernel_target:
+            kernel_file = root / KERNEL_PATH
+            kernel.build(kernel_file, kernel_target)
+            kernel_fields = kernel_metadata(kernel_file, kernel_target[1])
         digest = hashlib.sha256(module.read_bytes()).hexdigest()
         pdf_digest = hashlib.sha256(manual.read_bytes()).hexdigest()
         revision = source_revision()
@@ -76,8 +84,10 @@ def build_deb(profile, dest):
             f"X-Infiltrator-Cflags: {' '.join(flags)}\n"
             f"X-Infiltrator-Resource-SHA256: {digest}\n"
             f"X-Infiltrator-PDF-SHA256: {pdf_digest}\n"
+            f"{kernel_fields}"
             f"Description: Independent {MODULE} filesystem shared object for InfiltratorOS\n"
-            f" Installs only {MODULE} and its illustrated PDF.\n")
+            f" Installs {MODULE} and its illustrated PDF.\n"
+            + (" Includes the Linux kernel module for manual use.\n" if kernel_target else ""))
         dest.parent.mkdir(parents=True, exist_ok=True)
         run(["dpkg-deb", "--root-owner-group", "--build", root, dest])
         content = subprocess.check_output(["dpkg-deb", "--contents", str(dest)], text=True)
@@ -85,12 +95,43 @@ def build_deb(profile, dest):
             raise RuntimeError("Missing selected module in package")
         with tempfile.TemporaryDirectory(prefix="filesystem-payload-check-") as check:
             run(["dpkg-deb", "-x", dest, check])
-            actual = sorted(str(p.relative_to(check)) for p in Path(check).rglob("*") if p.is_file())
-            expected = sorted([f"System/Filesystems/{MODULE}",
-                               f"System/Resources/Documentation/{REPO}/{PDF.name}"])
+            actual = {p.relative_to(check) for p in Path(check).rglob("*") if p.is_symlink() or not p.is_dir()}
+            expected = {Path(f"System/Filesystems/{MODULE}"), Path(f"System/Resources/Documentation/{REPO}/{PDF.name}")}
+            if kernel_target:
+                expected.add(KERNEL_PATH)
             if actual != expected:
-                raise RuntimeError("DEB must own one .so and one PDF: " + str(actual))
+                raise RuntimeError("Unexpected filesystem package payload: " + str(sorted(actual)))
     return dest
+
+
+def kernel_metadata(module, release):
+    return "".join(f"{field}: {value}\n" for field, value in kernel.metadata(module, release).items())
+
+
+def bundle_kernel(package, kernel, output):
+    """Add the qualified Linux binary to the already built portable package."""
+    kernel_fields = kernel_metadata(kernel, QUALIFIED_KERNEL)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=SLUG + "-kernel-package-", dir=output.parent) as folder:
+        work = Path(folder)
+        image = work / "root"
+        run(["dpkg-deb", "--raw-extract", package, image])
+        control = image / "DEBIAN/control"
+        text = control.read_text()
+        fields = dict(line.split(": ", 1) for line in text.splitlines() if ": " in line and not line.startswith(" "))
+        expected = {"Package": PACKAGE, "Version": VERSION, "Architecture": "amd64",
+                    "X-Infiltrator-Native-Profile": "portable", "X-Infiltrator-Source-Revision": source_revision()}
+        if any(fields.get(key) != value for key, value in expected.items()):
+            raise ValueError("Expected the portable filesystem package from this release source")
+        destination = image / KERNEL_PATH
+        if destination.exists() or destination.is_symlink() or "X-Infiltrator-Kernel-SHA256" in fields:
+            raise ValueError("The package already contains an filesystem kernel module")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(kernel, destination)
+        control.write_text(text.rstrip("\n") + "\n Includes the Linux kernel module for manual use.\n" + kernel_fields)
+        bundled = work / "bundled.deb"
+        run(["dpkg-deb", "--root-owner-group", "--build", image, bundled])
+        bundled.replace(output)
 
 def source_files():
     if (ROOT / ".git").exists():
@@ -117,7 +158,8 @@ def source_files():
             chosen.append(p)
     if len(chosen) < 8:
         raise RuntimeError("Insufficient source files for full independent build")
-    return sorted(set(chosen))
+    chosen.extend(kernel.source_files())
+    return sorted(set(p for p in chosen if p != PDF))
 
 def create_run(path):
     with tempfile.TemporaryFile() as temp:
@@ -137,7 +179,7 @@ def create_run(path):
     header = """#!/bin/sh
 set -eu
 if [ "$#" -gt 0 ] && [ "$1" = "--help" ]; then
-    echo "Usage: __NAME__ [--profile aggressive] [--system-package-mode] [--build-only --output DIRECTORY]"
+    echo "Usage: __NAME__ [--profile aggressive] [--kernel-build DIRECTORY] [--build-only --output DIRECTORY]"
     exit 0
 fi
 temp=$(mktemp -d)
@@ -160,6 +202,7 @@ def release():
     if list(DIST.iterdir()):
         raise RuntimeError("Refusing to mix release artifacts; clean dist first")
     fsbuild.prepare_release_source()
+    kernel.prepare_source()
     deb = build_deb("portable", DIST / f"{PACKAGE}_{VERSION}_amd64.deb")
     runfile = DIST / f"{SLUG}-{VERSION}-native-installer.run"
     create_run(runfile)
@@ -168,20 +211,24 @@ def release():
     if len(list(DIST.iterdir())) != 2:
         raise RuntimeError("Release must contain exactly the DEB and RUN")
 
+
 def install(rest):
     parser = argparse.ArgumentParser()
     parser.add_argument("--profile", choices=("portable", "aggressive"), default="aggressive")
     parser.add_argument("--system-package-mode", action="store_true")
     parser.add_argument("--build-only", action="store_true")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--kernel-build", type=Path)
     opt = parser.parse_args(rest)
+    if opt.build_only and not opt.output:
+        parser.error("--build-only requires --output DIRECTORY")
+    if opt.system_package_mode and opt.kernel_build:
+        parser.error("--kernel-build applies to the manual installer")
+    kernel_target = None if opt.system_package_mode or kernel.SPEC is None else kernel.target(opt.kernel_build)
+    version = VERSION + ("+native1" if opt.profile == "aggressive" else "")
     with tempfile.TemporaryDirectory(prefix=SLUG + "-install-") as tmp:
-        if opt.build_only and not opt.output:
-            raise RuntimeError("--build-only requires --output DIRECTORY")
-        output = ((opt.output / f"{PACKAGE}_{VERSION}+native1_amd64.deb")
-                  if opt.build_only else
-                  Path(tmp) / f"{PACKAGE}_{VERSION}+native1_amd64.deb").resolve()
-        build_deb(opt.profile, output)
+        output = ((opt.output if opt.build_only else Path(tmp)) / f"{PACKAGE}_{version}_amd64.deb").resolve()
+        build_deb(opt.profile, output, kernel_target)
         if opt.build_only:
             print(output)
             return
@@ -197,15 +244,22 @@ def install(rest):
         control = subprocess.check_output(["dpkg-query", "-s", PACKAGE], text=True)
         metadata = dict(line.split(": ", 1) for line in control.splitlines() if ": " in line)
         expected = {
-            "Version": VERSION + ("+native1" if opt.profile == "aggressive" else ""),
+            "Version": version,
             "X-Infiltrator-Native-Profile": opt.profile,
             "X-Infiltrator-Source-Revision": source_revision(),
             "X-Infiltrator-Resource-SHA256": hashlib.sha256(installed.read_bytes()).hexdigest(),
             "X-Infiltrator-PDF-SHA256": hashlib.sha256(manual.read_bytes()).hexdigest(),
         }
+        paths = [installed, manual]
+        if kernel_target:
+            kernel_file = Path("/") / KERNEL_PATH
+            for line in kernel_metadata(kernel_file, kernel_target[1]).splitlines():
+                field, value = line.split(": ", 1)
+                expected[field] = value
+            paths.append(kernel_file)
         if any(metadata.get(k) != v for k, v in expected.items()):
             raise RuntimeError("Installed filesystem Debian metadata mismatch")
-        for path in (installed, manual):
+        for path in paths:
             owner = subprocess.check_output(["dpkg-query", "-S", str(path)], text=True)
             if not owner.startswith(PACKAGE + ":"):
                 raise RuntimeError("Filesystem package does not own " + str(path))
@@ -213,14 +267,21 @@ def install(rest):
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("command", choices=("release", "install"))
+    p.add_argument("command", choices=("release", "install", "bundle-kernel"))
     args, rest = p.parse_known_args()
     if args.command == "release":
         if rest:
             p.error("Unrecognised release options")
         release()
-    else:
+    elif args.command == "install":
         install(rest)
+    else:
+        bundle = argparse.ArgumentParser()
+        bundle.add_argument("package", type=Path)
+        bundle.add_argument("kernel", type=Path)
+        bundle.add_argument("output", type=Path)
+        paths = bundle.parse_args(rest)
+        bundle_kernel(paths.package, paths.kernel, paths.output)
 
 if __name__ == "__main__":
     try:

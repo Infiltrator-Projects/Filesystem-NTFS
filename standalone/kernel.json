@@ -1,0 +1,11 @@
+{
+  "name": "ntfs3",
+  "directory": "native/filesystems/ntfs/linux",
+  "revision": "167bd9a1dae6d8f5842b7208703fb302e1f5b765",
+  "paths": [
+    "native/filesystems/ntfs"
+  ],
+  "make_args": [
+    "CONFIG_NTFS3_FS=m"
+  ]
+}
