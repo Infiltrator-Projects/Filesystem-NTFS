@@ -7,6 +7,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import tarfile
+import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "standalone/kernel.json"
@@ -23,26 +25,26 @@ def prepare_source():
         if (destination / "SOURCE-REVISION").read_text().strip() != revision:
             raise RuntimeError("Kernel source snapshot revision mismatch")
         return
-    with tempfile.TemporaryDirectory(prefix="filesystem-kernel-source-") as temporary:
-        checkout = Path(temporary) / "source"
-        subprocess.run(["git", "clone", "--quiet", "--filter=blob:none", "--no-checkout",
-                        "https://github.com/Infiltrator-Projects/Filesystems.git", str(checkout)], check=True)
-        subprocess.run(["git", "-C", str(checkout), "sparse-checkout", "set", *SPEC["paths"]], check=True)
-        subprocess.run(["git", "-C", str(checkout), "checkout", "--quiet", "--detach", revision], check=True)
-        actual = subprocess.check_output(["git", "-C", str(checkout), "rev-parse", "HEAD"], text=True).strip()
-        if actual != revision:
-            raise RuntimeError("Kernel source checkout revision mismatch")
-        destination.mkdir()
+    url = "https://codeload.github.com/Infiltrator-Projects/Filesystems/tar.gz/" + revision
+    with tempfile.TemporaryDirectory(prefix=".kernel-source-", dir=ROOT) as temporary:
+        snapshot = Path(temporary) / "source"
+        snapshot.mkdir()
+        with urllib.request.urlopen(url, timeout=120) as response, tarfile.open(fileobj=response, mode="r|gz") as archive:
+            for member in archive:
+                prefix, _, name = member.name.partition("/")
+                if prefix != "Filesystems-" + revision or ".." in Path(name).parts:
+                    raise RuntimeError("Invalid kernel source archive path")
+                if not member.isfile() or not any(name == path or name.startswith(path + "/") for path in SPEC["paths"]):
+                    continue
+                path = snapshot / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with archive.extractfile(member) as source, path.open("wb") as output:
+                    shutil.copyfileobj(source, output)
         for name in SPEC["paths"]:
-            source = checkout / name
-            if source.is_dir():
-                shutil.copytree(source, destination / name)
-            elif source.is_file():
-                (destination / name).parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(source, destination / name)
-            else:
+            if not (snapshot / name).exists():
                 raise RuntimeError("Missing recorded kernel source " + name)
-        (destination / "SOURCE-REVISION").write_text(revision + "\n")
+        (snapshot / "SOURCE-REVISION").write_text(revision + "\n")
+        snapshot.replace(destination)
 
 
 def source_files():
