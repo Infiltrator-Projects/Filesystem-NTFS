@@ -1,5 +1,7 @@
-# NTFS migration — 2026-10-30
+# NTFS source consolidation — 6 November 2026
 
-Source import only. Existing Defragmenter NTFS native analysis/relayout code copied **unchanged** from Defragmenter commit 30af892d8897d3aeaeefeac1bfcdb9620a0a5c72 to `migration/defragmenter/native/`. Canonical NTFS on-media design is copied from Filesystems commit ca2fa1210c3c1f2b6f52cd15b3da6dfa83d453ad.
+The independent NTFS module repository now contains all 29 canonical source/design files under `native/filesystems/ntfs/` from central Filesystems main `a253fb724ce1fd760a361219281effb6abd71367`. Its existing matching design file was preserved. The complete original Linux NTFS3 VFS code was imported into its local `native/filesystems/ntfs/linux/` tree, preserving its separate code authorship and licenses. The existing Defragmenter-derived native NTFS worker and standalone module remain intact and continue to be built by this repository.
 
-The full NTFS3 Linux VFS implementation remains in Filesystems/native/filesystems/ntfs/linux. Worker sources rely on Defragmenter's platform and orchestration services, so this repository does **not** yet produce NTFS.so. Do not delete original sources or move consumers before reconciliation, a Common ABI adapter, independent media qualification and generic BOOT/kernel integration.
+`standalone/kernel.json` builds `ntfs3.ko` from this repository's source, without retrieving a pinned older Filesystems source archive. The independent `.so` is still subject to its ABI and real-media qualification tests; copying the kernel driver does not itself mean the shared object implements full NTFS read/write.
+
+Central source deletion requires an independent kernel build and runtime test plus detachment of the central test/package consumers. The Linux source must not be forked again in Filesystems after that cutover.
