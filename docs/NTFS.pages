@@ -160,3 +160,60 @@ BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 505.0 Tm (https://learn.microsoft.co
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 475.0 Tm (Our independent .so, optional .ko, build procedures and test evidence describe a separate) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 458.0 Tm (implementation. The source-level history in this PDF cannot itself qualify production) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 441.0 Tm (writes, boot, recovery or cross-platform compatibility.) Tj ET
+%%Page
+0.05 0.13 0.22 rg 0 749 595 93 re f
+0.01 0.52 0.56 rg 50 747 116 5 re f
+0.75 0.82 0.85 RG .7 w 50 49 m 545 49 l S
+BT /F2 9 Tf 0.62 0.88 0.91 rg 1 0 0 1 50 800 Tm (INFILTRATOR / ORIGINAL FILESYSTEM ENGINEERING APPENDIX) Tj ET
+BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 770 Tm (NTFS / engineering detail) Tj ET
+BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 50 34 Tm (Original format research; consult primary references for normative fields) Tj ET
+BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 509 34 Tm (PAGE 09) Tj ET
+BT /F2 13.5 Tf 0.02 0.44 0.50 rg 1 0 0 1 50 710 Tm (DISK READ PATH / ENGINEERING NOTES) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 678 Tm (1. Read the NTFS volume boot record and validate bytes per sector, sectors per cluster,) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 661.5 Tm (volume bounds, and the logical cluster locations of the MFT and its mirror.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 635 Tm (2. Locate file record zero in the Master File Table. Check its FILE signature and update) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 618.5 Tm (sequence array before interpreting attributes; a torn multi-sector write must not be) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 602 Tm (treated as valid metadata.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 575.5 Tm (3. Walk typed attributes, respecting resident values inside the record and nonresident) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 559 Tm (data runs elsewhere. Attribute-list entries can extend one file across additional MFT) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 542.5 Tm (records.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 516 Tm (4. Decode nonresident runlists as variable-length signed LCN deltas and unsigned run) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 499.5 Tm (lengths. Virtual cluster numbers describe logical file order; a sparse run has no) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 483 Tm (physical cluster allocation.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 456.5 Tm (5. Resolve a directory through INDEX_ROOT and, where present, INDEX_ALLOCATION and its) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 440 Tm (bitmap. Check ordering, references and child nodes instead of assuming a flat directory) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 423.5 Tm (table.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 397 Tm (6. Follow FILE_NAME links with full MFT record references and sequence numbers. Several) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 380.5 Tm (names may legitimately refer to one file, and alternate data streams can share the same) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 364 Tm (file identity.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 337.5 Tm (7. Distinguish logical file size, initialized size and allocated size. Compression and) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 321 Tm (sparse attributes make those values and the physical extent count differ.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 294.5 Tm (8. Treat $MFT, $Bitmap, $LogFile, $BadClus and $Secure as distinct system files. Their) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 278 Tm (recorded allocation and journal state form part of the volume interpretation.) Tj ET
+%%Page
+0.05 0.13 0.22 rg 0 749 595 93 re f
+0.01 0.52 0.56 rg 50 747 116 5 re f
+0.75 0.82 0.85 RG .7 w 50 49 m 545 49 l S
+BT /F2 9 Tf 0.62 0.88 0.91 rg 1 0 0 1 50 800 Tm (INFILTRATOR / ORIGINAL FILESYSTEM ENGINEERING APPENDIX) Tj ET
+BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 770 Tm (NTFS / engineering detail) Tj ET
+BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 50 34 Tm (Original format research; consult primary references for normative fields) Tj ET
+BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 509 34 Tm (PAGE 10) Tj ET
+BT /F2 13.5 Tf 0.02 0.44 0.50 rg 1 0 0 1 50 710 Tm (VALIDATION, RECOVERY AND COMPATIBILITY) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 678 Tm (1. Check the volume dirty state and any hibernation or Fast Startup evidence before) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 661.5 Tm (considering writes from a non-Windows implementation. A clean directory listing is not) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 645 Tm (sufficient.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 618.5 Tm (2. Validate update-sequence fixups on every multi-sector MFT or index record. These are) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 602 Tm (torn-write detectors, not replacement checksums for arbitrary file contents.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 575.5 Tm (3. Check that every runlist terminates within volume bounds and that nonresident) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 559 Tm (attributes have coherent VCN ranges. Reject negative or overflowed physical mappings.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 532.5 Tm (4. Respect record sequence numbers when resolving a file reference. Reused MFT slots can) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 516 Tm (make an old numeric record address point at a different file.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 489.5 Tm (5. Replay of $LogFile is not the same operation as analysing $UsnJrnl. The former) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 473 Tm (supports metadata consistency; the latter records change history for consumers.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 446.5 Tm (6. Verify directory index entries against the file records they name. An apparently) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 430 Tm (readable index page can still contain stale or inconsistent references.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 403.5 Tm (7. Never assume $MFTMirr holds the entire MFT. It mirrors only a limited set of critical) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 387 Tm (records, so recovery cannot be based on it as a complete backup.) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 360.5 Tm (8. For damaged media, preserve an image, report conflicting references and distinguish) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 344 Tm (journal replay from destructive filesystem repair. The Microsoft format references remain) Tj ET
+BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 327.5 Tm (authoritative.) Tj ET
