@@ -3,7 +3,10 @@ from pathlib import Path
 
 
 def build(destination, source, version):
-    pages = Path(source).read_bytes().replace(b"@VERSION@", version.encode("ascii")).split(b"\n%%Page\n")
+    raw = Path(source).read_bytes()
+    if raw.count(b"\n%%Page\n") < 7 or raw.count(b"https://") < 2 or b"HISTORICAL" not in raw.upper():
+        raise ValueError("Insufficient original-format reference: need eight pages, history and primary sources")
+    pages = raw.replace(b"@VERSION@", version.encode("ascii")).split(b"\n%%Page\n")
     objects = [b"<< /Type /Catalog /Pages 2 0 R >>", b""]
     for font in (b"Helvetica", b"Helvetica-Bold", b"Courier"):
         objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /" + font + b" >>")
