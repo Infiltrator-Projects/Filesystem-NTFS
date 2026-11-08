@@ -1132,15 +1132,18 @@ int run_unpack_ex(struct runs_tree *run, struct ntfs_sb_info *sbi, CLST ino,
 		/* Mark all zero bits as used in range [lcn, lcn+len). */
 		err = wnd_set_used_safe(wnd, lcn, len, &done);
 		if (zone) {
-			/* Restore zone. Lock mft run. */
-			struct rw_semaphore *lock;
-			lock = is_mounted(sbi) ? &sbi->mft.ni->file.run_lock :
-						 NULL;
-			if (lock)
-				down_read(lock);
-			ntfs_refresh_zone(sbi);
-			if (lock)
-				up_read(lock);
+			/* Restore zone without blocking on a nested MFT run lock. */
+			struct rw_semaphore *lock =
+				is_mounted(sbi) ? &sbi->mft.ni->file.run_lock :
+						  NULL;
+			if (lock) {
+				if (down_read_trylock(lock)) {
+					ntfs_refresh_zone(sbi);
+					up_read(lock);
+				}
+			} else {
+				ntfs_refresh_zone(sbi);
+			}
 		}
 		up_write(&wnd->rw_lock);
 		if (err)
