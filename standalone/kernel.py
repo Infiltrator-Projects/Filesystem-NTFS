@@ -7,8 +7,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import tarfile
-import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "standalone/kernel.json"
@@ -17,43 +15,28 @@ QUALIFIED_RELEASE = "6.12.107"
 
 
 def prepare_source():
-    if not SPEC or "revision" not in SPEC:
+    """Require the canonical local filesystem Linux adapter, never an archive."""
+    if SPEC is None:
         return
-    destination = ROOT / "kernel-source"
-    revision = SPEC["revision"]
-    if destination.exists():
-        if (destination / "SOURCE-REVISION").read_text().strip() != revision:
-            raise RuntimeError("Kernel source snapshot revision mismatch")
-        return
-    url = "https://codeload.github.com/Infiltrator-Projects/Filesystems/tar.gz/" + revision
-    with tempfile.TemporaryDirectory(prefix=".kernel-source-", dir=ROOT) as temporary:
-        snapshot = Path(temporary) / "source"
-        snapshot.mkdir()
-        with urllib.request.urlopen(url, timeout=120) as response, tarfile.open(fileobj=response, mode="r|gz") as archive:
-            for member in archive:
-                prefix, _, name = member.name.partition("/")
-                if prefix != "Filesystems-" + revision or ".." in Path(name).parts:
-                    raise RuntimeError("Invalid kernel source archive path")
-                if not member.isfile() or not any(name == path or name.startswith(path + "/") for path in SPEC["paths"]):
-                    continue
-                path = snapshot / name
-                path.parent.mkdir(parents=True, exist_ok=True)
-                with archive.extractfile(member) as source, path.open("wb") as output:
-                    shutil.copyfileobj(source, output)
-        for name in SPEC["paths"]:
-            if not (snapshot / name).exists():
-                raise RuntimeError("Missing recorded kernel source " + name)
-        (snapshot / "SOURCE-REVISION").write_text(revision + "\n")
-        snapshot.replace(destination)
+    directory = ROOT / SPEC["directory"]
+    if not (directory / "Makefile").is_file():
+        raise RuntimeError("Independent kernel source missing its Makefile: " + str(directory))
+    for relative in SPEC.get("paths", [SPEC["directory"]]):
+        candidate = ROOT / relative
+        if not candidate.is_dir() or candidate.is_symlink():
+            raise RuntimeError("Missing or unsafe local kernel source: " + str(candidate))
 
 
 def source_files():
-    if not SPEC or "revision" not in SPEC:
+    """Include exact local kernel source in the native source-embedded RUN."""
+    if SPEC is None:
         return []
-    source = ROOT / "kernel-source"
-    if (source / "SOURCE-REVISION").read_text().strip() != SPEC["revision"]:
-        raise RuntimeError("Kernel source snapshot missing from native installer")
-    return [path.relative_to(ROOT) for path in source.rglob("*") if path.is_file() and not path.is_symlink()]
+    prepare_source()
+    return sorted({
+        f.relative_to(ROOT) for relative in SPEC.get("paths", [SPEC["directory"]])
+        for f in (ROOT / relative).rglob("*")
+        if f.is_file() and not f.is_symlink()
+    })
 
 
 def target(build_directory):
@@ -86,9 +69,8 @@ def metadata(module, release):
 
 def build(destination, selected_target):
     directory, release = selected_target
-    source = ROOT / "kernel-source" if "revision" in SPEC else ROOT
-    if "revision" in SPEC:
-        source_files()
+    prepare_source()
+    source = ROOT
     with tempfile.TemporaryDirectory(prefix="filesystem-kernel-build-") as temporary:
         work = Path(temporary) / "source"
         paths = SPEC.get("paths", [SPEC["directory"]])
