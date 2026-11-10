@@ -36,6 +36,12 @@ static bool safe_journal_value(const char *value)
            strchr(value, '\r') == NULL && strchr(value, '=') == NULL;
 }
 
+static bool journal_member_valid(const char *value, size_t capacity)
+{
+    return value[0] != '\0' && memchr(value, '\0', capacity) != NULL &&
+           safe_journal_value(value);
+}
+
 static void unlink_if_exists(const char *path)
 {
     if (path == NULL || *path == '\0')
@@ -96,7 +102,14 @@ static bool journal_write_stream(FILE *file, const void *user_data)
 
 int ntfs_journal_save(const char *path, const NtfsJournal *state, char **error)
 {
-    if (!safe_journal_value(state->device) ||
+    if (!path || !*path || !state) {
+        ntfs_set_error(error, "NTFS journal path or state missing");
+        return -1;
+    }
+    if (!journal_member_valid(state->serial, sizeof(state->serial)) ||
+        !journal_member_valid(state->operation, sizeof(state->operation)) ||
+        !journal_member_valid(state->phase, sizeof(state->phase)) ||
+        !safe_journal_value(state->device) ||
         !safe_journal_value(state->target_identity) ||
         !safe_journal_value(state->stage) ||
         !safe_journal_value(state->plan)) {
@@ -138,6 +151,10 @@ static int parse_u64(const char *text, uint64_t *value)
 
 int ntfs_journal_load(const char *path, NtfsJournal *state, char **error)
 {
+    if (!path || !*path || !state) {
+        ntfs_set_error(error, "NTFS journal path or output missing");
+        return -1;
+    }
     memset(state, 0, sizeof(*state));
     FILE *file = fopen(path, "r");
     if (file == NULL) {
@@ -168,10 +185,16 @@ int ntfs_journal_load(const char *path, NtfsJournal *state, char **error)
             free(state->target_identity);
             state->target_identity = value_copy(value);
         } else if (strcmp(key, "serial") == 0) {
+            if (strlen(value) >= sizeof(state->serial) ||
+                !safe_journal_value(value)) goto invalid;
             infiltratr_copy_string(state->serial, sizeof(state->serial), value);
         } else if (strcmp(key, "operation") == 0) {
+            if (strlen(value) >= sizeof(state->operation) ||
+                !safe_journal_value(value)) goto invalid;
             infiltratr_copy_string(state->operation, sizeof(state->operation), value);
         } else if (strcmp(key, "phase") == 0) {
+            if (strlen(value) >= sizeof(state->phase) ||
+                !safe_journal_value(value)) goto invalid;
             infiltratr_copy_string(state->phase, sizeof(state->phase), value);
         } else if (strcmp(key, "stage") == 0) {
             free(state->stage);
@@ -196,6 +219,10 @@ int ntfs_journal_load(const char *path, NtfsJournal *state, char **error)
             goto invalid;
         } else if (strcmp(key, "workspace_clusters") == 0 &&
                    parse_u64(value, &state->workspace_clusters) != 0) {
+            goto invalid;
+        } else {
+            /* An unrecognised or duplicate-style extension must never be
+             * treated as a successfully validated recovery transaction. */
             goto invalid;
         }
     }
@@ -222,6 +249,12 @@ invalid_state:
 int ntfs_journal_phase(const char *path, NtfsJournal *state,
                        const char *phase, char **error)
 {
+    if (!path || !*path || !state || !phase || !*phase ||
+        strlen(phase) >= sizeof(state->phase) ||
+        !safe_journal_value(phase)) {
+        ntfs_set_error(error, "NTFS journal phase is invalid");
+        return -1;
+    }
     infiltratr_copy_string(state->phase, sizeof(state->phase), phase);
     return ntfs_journal_save(path, state, error);
 }
