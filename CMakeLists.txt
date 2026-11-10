@@ -13,7 +13,7 @@ set(INFILTRATR_COMMON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(INFILTRATR_COMMON_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(infiltratr_common
  GIT_REPOSITORY https://github.com/Infiltrator-Projects/Libraries.git
- GIT_TAG c76ec95ef66fc728df6a906ad75a6a4dd63b419b)
+ GIT_TAG 5b5fb95988c8d0b53ed29fdecfb0b70274182fd6)
 FetchContent_MakeAvailable(infiltratr_common)
 # Common is a link-time dependency; its development files must not be installed
 # by this standalone filesystem package.
@@ -35,15 +35,27 @@ target_link_options(ntfs-driver PRIVATE -Wl,-z,defs)
 target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
  "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include"
- "${CMAKE_CURRENT_BINARY_DIR}")
+ "${CMAKE_CURRENT_BINARY_DIR}" "${infiltratr_common_SOURCE_DIR}/include")
 target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads)
 if(BUILD_TESTING)
+ # Qualify V2 directly against bounded host I/O, without publishing a
+ # probe-only binary as a fully functional NTFS filesystem.
+ add_executable(ntfs-v2-probe-test
+   tests/test_ntfs_v2_probe.c module/ntfs_v2_probe.c)
+ target_link_libraries(ntfs-v2-probe-test PRIVATE
+   ntfs-driver InfiltratrCommon::Common)
+ target_include_directories(ntfs-v2-probe-test PRIVATE
+   "${CMAKE_CURRENT_SOURCE_DIR}/native")
+ target_include_directories(ntfs-v2-probe-test PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
+ target_compile_options(ntfs-v2-probe-test PRIVATE
+   -Wall -Wextra -Wpedantic -Werror)
+ add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
  add_executable(ntfs-module-test tests/test_module.c)
  target_include_directories(ntfs-module-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include")
  target_link_libraries(ntfs-module-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-module-contract COMMAND ntfs-module-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
- target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
+ target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
  target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-native-stream-index COMMAND ntfs-stream-index-test)
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
