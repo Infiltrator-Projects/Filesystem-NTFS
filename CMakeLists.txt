@@ -43,6 +43,7 @@ if(BUILD_TESTING)
  add_executable(ntfs-v2-probe-test
    tests/test_ntfs_v2_probe.c module/ntfs_v2_probe.c)
  target_link_libraries(ntfs-v2-probe-test PRIVATE InfiltratrCommon::Common)
+ target_include_directories(ntfs-v2-probe-test PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
  target_compile_options(ntfs-v2-probe-test PRIVATE
    -Wall -Wextra -Wpedantic -Werror)
  add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
