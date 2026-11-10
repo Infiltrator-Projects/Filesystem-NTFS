@@ -38,6 +38,14 @@ target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_BINARY_DIR}")
 target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads)
 if(BUILD_TESTING)
+ # Qualify V2 directly against bounded host I/O, without publishing a
+ # probe-only binary as a fully functional NTFS filesystem.
+ add_executable(ntfs-v2-probe-test
+   tests/test_ntfs_v2_probe.c module/ntfs_v2_probe.c)
+ target_link_libraries(ntfs-v2-probe-test PRIVATE InfiltratrCommon::Common)
+ target_compile_options(ntfs-v2-probe-test PRIVATE
+   -Wall -Wextra -Wpedantic -Werror)
+ add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
  add_executable(ntfs-module-test tests/test_module.c)
  target_include_directories(ntfs-module-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include")
  target_link_libraries(ntfs-module-test PRIVATE ntfs-driver)
