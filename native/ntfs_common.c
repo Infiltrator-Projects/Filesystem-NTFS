@@ -10,6 +10,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -287,7 +288,7 @@ static int ntfs_init_boot_geometry(NtfsVolume *volume,
                                    uint64_t device_bytes, char **error)
 {
     const uint32_t bps = ntfs_u16(boot, 11), spc = boot[13];
-    if (bps < 512u || bps > 4096u || (bps & (bps - 1u)) ||
+    if (bps < 256u || bps > 4096u || (bps & (bps - 1u)) ||
         !spc || (spc & (spc - 1u))) {
         ntfs_set_error(error, "invalid NTFS sector or cluster geometry");
         return -1;
