@@ -141,7 +141,11 @@ static char *value_copy(const char *value)
     while (length != 0U &&
            (value[length - 1U] == '\n' || value[length - 1U] == '\r'))
         --length;
-    return ld_xstrndup(value, length);
+    char *result = malloc(length + 1U);
+    if (!result) return NULL;
+    memcpy(result, value, length);
+    result[length] = '\0';
+    return result;
 }
 
 static int parse_u64(const char *text, uint64_t *value)
@@ -202,27 +206,20 @@ int ntfs_journal_load(const char *path, NtfsJournal *state, char **error)
         } else if (strcmp(key, "plan") == 0) {
             free(state->plan);
             state->plan = value_copy(value);
-        } else if (strcmp(key, "physical_bytes") == 0 &&
-                   parse_u64(value, &state->physical_bytes) != 0) {
-            goto invalid;
-        } else if (strcmp(key, "filesystem_bytes") == 0 &&
-                   parse_u64(value, &state->filesystem_bytes) != 0) {
-            goto invalid;
-        } else if (strcmp(key, "commit_cluster") == 0 &&
-                   parse_u64(value, &state->commit_cluster) != 0) {
-            goto invalid;
-        } else if (strcmp(key, "move_clusters") == 0 &&
-                   parse_u64(value, &state->move_clusters) != 0) {
-            goto invalid;
-        } else if (strcmp(key, "workspace_start") == 0 &&
-                   parse_u64(value, &state->workspace_start) != 0) {
-            goto invalid;
-        } else if (strcmp(key, "workspace_clusters") == 0 &&
-                   parse_u64(value, &state->workspace_clusters) != 0) {
-            goto invalid;
+        } else if (strcmp(key, "physical_bytes") == 0) {
+            if (parse_u64(value, &state->physical_bytes) != 0) goto invalid;
+        } else if (strcmp(key, "filesystem_bytes") == 0) {
+            if (parse_u64(value, &state->filesystem_bytes) != 0) goto invalid;
+        } else if (strcmp(key, "commit_cluster") == 0) {
+            if (parse_u64(value, &state->commit_cluster) != 0) goto invalid;
+        } else if (strcmp(key, "move_clusters") == 0) {
+            if (parse_u64(value, &state->move_clusters) != 0) goto invalid;
+        } else if (strcmp(key, "workspace_start") == 0) {
+            if (parse_u64(value, &state->workspace_start) != 0) goto invalid;
+        } else if (strcmp(key, "workspace_clusters") == 0) {
+            if (parse_u64(value, &state->workspace_clusters) != 0) goto invalid;
         } else {
-            /* An unrecognised or duplicate-style extension must never be
-             * treated as a successfully validated recovery transaction. */
+            /* An unrecognised field must not silently validate recovery. */
             goto invalid;
         }
     }
