@@ -96,7 +96,7 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
     free(error);
     const uint64_t total = volume->media.total_clusters;
     const uint64_t byte_count = total / 8u;
-    unsigned used = 0u;
+    uint64_t used = 0u;
     for (uint64_t i = 0u; i < byte_count; ++i)
         used += popcount8(volume->layout.bitmap[i]);
     if (total % 8u) {
