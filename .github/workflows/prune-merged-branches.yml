@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Only delete a verified merged PR head if its current branch SHA is unchanged.
+name: Prune merged branches
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/prune-merged-branches.yml']
+  pull_request_target:
+    types: [closed]
+permissions:
+  contents: write
+jobs:
+  prune:
+    if: ${{ github.event_name == 'push' || github.event.pull_request.merged == true }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Remove only an unchanged merged PR branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # Bootstrap removal of the branch merged before this workflow existed.
+          if [ "$EVENT_NAME" = "push" ]; then
+            PR_NUMBER=3
+            PR_BRANCH=work/native-v2-ntfs-core-20261110
+            PR_HEAD_SHA=ddc8e50a4b9b57b7eb9af9706dc5be29250b626e
+          fi
+          [ -n "$PR_NUMBER" ] && [ -n "$PR_BRANCH" ] || exit 0
+          [ "$PR_BRANCH" != main ] || exit 0
+          pr="$(gh api "repos/$REPOSITORY/pulls/$PR_NUMBER")"
+          if ! jq -e --arg repo "$REPOSITORY" --arg branch "$PR_BRANCH" \
+               --arg sha "$PR_HEAD_SHA" \
+               '.merged == true and .head.repo.full_name == $repo and
+                .head.ref == $branch and .head.sha == $sha' \
+               <<< "$pr" >/dev/null; then
+            echo "Not a verified merged local PR head; preserving branch"
+            exit 0
+          fi
+          current="$(gh api "repos/$REPOSITORY/git/ref/heads/$PR_BRANCH" \
+            --jq '.object.sha' 2>/dev/null || true)"
+          if [ "$current" != "$PR_HEAD_SHA" ]; then
+            echo "Branch missing or changed since merge; preserving it"
+            exit 0
+          fi
+          gh api --method DELETE "repos/$REPOSITORY/git/refs/heads/$PR_BRANCH"
+          echo "Deleted merged branch: $PR_BRANCH"
