@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sqlite3.h>
+#include <infiltratr/filesystem_module_v2.h>
 /*
  * Native NTFS representation contract.
  *
@@ -48,6 +49,7 @@ typedef struct {
 typedef struct {
     char *path;
     int fd;
+    const IfsFsHostRuntimeV2 *host;
     uint64_t device_size;
     uint64_t volume_bytes;
     uint32_t bytes_per_sector;
@@ -162,6 +164,8 @@ int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_siz
                         uint8_t *raw, char **error);
 
 int ntfs_open_volume(const char *path, bool write, NtfsVolume *volume, char **error);
+int ntfs_open_host(const IfsFsHostRuntimeV2 *host,
+                   NtfsVolume *volume, char **error);
 void ntfs_close_volume(NtfsVolume *volume);
 int ntfs_read_stream(const NtfsVolume *volume, const NtfsRunVec *runs,
                      uint64_t logical_offset, void *buffer, size_t length, char **error);

@@ -35,7 +35,7 @@ target_link_options(ntfs-driver PRIVATE -Wl,-z,defs)
 target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
  "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include"
- "${CMAKE_CURRENT_BINARY_DIR}")
+ "${CMAKE_CURRENT_BINARY_DIR}" "${infiltratr_common_SOURCE_DIR}/include")
 target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads)
 if(BUILD_TESTING)
  # Qualify V2 directly against bounded host I/O, without publishing a
@@ -52,7 +52,7 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-module-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-module-contract COMMAND ntfs-module-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
- target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
+ target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
  target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-native-stream-index COMMAND ntfs-stream-index-test)
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
