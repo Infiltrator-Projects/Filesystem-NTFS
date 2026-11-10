@@ -42,7 +42,10 @@ if(BUILD_TESTING)
  # probe-only binary as a fully functional NTFS filesystem.
  add_executable(ntfs-v2-probe-test
    tests/test_ntfs_v2_probe.c module/ntfs_v2_probe.c)
- target_link_libraries(ntfs-v2-probe-test PRIVATE InfiltratrCommon::Common)
+ target_link_libraries(ntfs-v2-probe-test PRIVATE
+   ntfs-driver InfiltratrCommon::Common)
+ target_include_directories(ntfs-v2-probe-test PRIVATE
+   "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_include_directories(ntfs-v2-probe-test PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
  target_compile_options(ntfs-v2-probe-test PRIVATE
    -Wall -Wextra -Wpedantic -Werror)

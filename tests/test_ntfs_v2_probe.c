@@ -22,7 +22,12 @@ int main(void) {
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
     CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
-    CHECK(core && core->probe && !core->mount && !core->write);
+    CHECK(core && core->probe && core->mount && core->unmount &&
+          !core->stat && !core->read && !core->write);
+    const IfsFsVolumeOpsV2 *volume_ops = (const void *)
+        ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
+    CHECK(volume_ops && volume_ops->query &&
+          volume_ops->header.capabilities == IFS_FS_VOLUME_QUERY);
     IfsFsHostRuntimeV2 h = {0};
     h.abi_version=IFS_FS_HOST_ABI_V2; h.structure_bytes=sizeof(h);
     h.capabilities=IFS_FS_HOST_READ_ONLY; h.volume_bytes=sizeof(disk);
@@ -37,6 +42,11 @@ int main(void) {
     put64(disk+40,128);put64(disk+48,4);put64(disk+56,8);
     disk[64]=(uint8_t)-10;
     CHECK(core->probe(&h,&variant)==IFS_FS_OK && variant==1);
+    /* The boot geometry passes, but a missing genuine MFT/$Bitmap
+     * must never be accepted as a usable mounted filesystem. */
+    IfsFsVolumeInfoV2 info = {.structure_bytes=sizeof(IfsFsVolumeInfoV2)};
+    void *mounted = NULL;
+    CHECK(core->mount(&h, &mounted, &info) != IFS_FS_OK && mounted == NULL);
     variant=54321; disk[13]=0;
     CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT && variant==54321);
     disk[13]=1;disk[64]=(uint8_t)-128;
