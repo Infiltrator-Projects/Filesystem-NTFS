@@ -20,9 +20,8 @@ static void put64(uint8_t *p, uint64_t v) {
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "NTFS V2: %s\n", #x); return 1; } } while (0)
 int main(void) {
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
-    CHECK(ifs_fs_api_v2_native_valid(api, "ntfs"));
-    CHECK(api->base_v1 == NULL);
-    const IfsFsCoreOpsV1 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
+    CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
+    const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
     CHECK(core && core->probe && !core->mount && !core->write);
     IfsFsHostRuntimeV2 h = {0};
     h.abi_version=IFS_FS_HOST_ABI_V2; h.structure_bytes=sizeof(h);

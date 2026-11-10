@@ -56,19 +56,19 @@ static int native_probe(const IfsFsHostRuntimeV2 *h, uint32_t *variant) {
     *variant = 1u;
     return IFS_FS_OK;
 }
-static const IfsFsCoreOpsV1 core = {
-    .header = { IFS_FS_GROUP_ABI_V1, sizeof(IfsFsCoreOpsV1),
+static const IfsFsCoreOpsV2 core = {
+    .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),
                 IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE },
     .probe = native_probe
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
     return id == IFS_FS_GROUP_CORE &&
-        lo <= IFS_FS_GROUP_ABI_V1 && hi >= IFS_FS_GROUP_ABI_V1
+        lo <= IFS_FS_GROUP_ABI_V2 && hi >= IFS_FS_GROUP_ABI_V2
         ? &core.header : NULL;
 }
 static const IfsFsModuleApiV2 api = {
     IFS_FS_COMMON_ABI_V2, sizeof(IfsFsModuleApiV2), "ntfs",
-    IFS_FS_PROFILE_HOSTED, IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE), NULL, query
+    IFS_FS_PROFILE_HOSTED, IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE), query
 };
 __attribute__((visibility("default")))
 const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void) { return &api; }

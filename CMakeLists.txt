@@ -13,7 +13,7 @@ set(INFILTRATR_COMMON_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(INFILTRATR_COMMON_BUILD_SHARED OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(infiltratr_common
  GIT_REPOSITORY https://github.com/Infiltrator-Projects/Libraries.git
- GIT_TAG c73648ac55a8ca83199d46a24b6ec8ebb0b27b09)
+ GIT_TAG 5b5fb95988c8d0b53ed29fdecfb0b70274182fd6)
 FetchContent_MakeAvailable(infiltratr_common)
 # Common is a link-time dependency; its development files must not be installed
 # by this standalone filesystem package.
