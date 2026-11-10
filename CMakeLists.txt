@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
-project(FilesystemNTFS VERSION 1.0.0 LANGUAGES C CXX)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" FILESYSTEM_VERSION LIMIT_COUNT 1)
+project(FilesystemNTFS VERSION ${FILESYSTEM_VERSION} LANGUAGES C CXX)
 include(CTest)
 include(FetchContent)
 find_package(OpenSSL REQUIRED)
@@ -17,7 +18,7 @@ FetchContent_MakeAvailable(infiltratr_common)
 # Common is a link-time dependency; its development files must not be installed
 # by this standalone filesystem package.
 set_property(DIRECTORY "${infiltratr_common_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/version.h" "#define LD_VERSION \"1.0.0\"\n")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/version.h" "#define LD_VERSION \"${PROJECT_VERSION}\"\n")
 add_library(ntfs-driver SHARED
  native/ntfs_catalog.c native/ntfs_common.c native/ntfs_plan.c
  native/ntfs_plan_db.cpp native/ntfs_transaction.c native/ntfs_worker.c
