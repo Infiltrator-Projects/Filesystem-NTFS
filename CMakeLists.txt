@@ -22,7 +22,7 @@ file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/version.h" "#define LD_VERSION \"${PROJE
 add_library(ntfs-driver SHARED
  native/ntfs_catalog.c native/ntfs_common.c native/ntfs_plan.c
  native/ntfs_plan_db.cpp native/ntfs_transaction.c native/ntfs_worker.c
- compat/legacy_services.c compat/runtime_alloc.c module/ntfs_v2_probe.c
+ compat/legacy_services.c compat/runtime_alloc.c module/ntfs_module.c module/ntfs_v2_probe.c
  fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c)
 set_source_files_properties(native/ntfs_worker.c
  PROPERTIES COMPILE_DEFINITIONS "main=ifs_ntfs_worker_main")
@@ -50,6 +50,11 @@ if(BUILD_TESTING)
  target_compile_options(ntfs-v2-probe-test PRIVATE
    -Wall -Wextra -Wpedantic -Werror)
  add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
+ # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
+ add_executable(ntfs-legacy-compat-test tests/test_module.c)
+ target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ target_link_libraries(ntfs-legacy-compat-test PRIVATE ntfs-driver)
+ add_test(NAME ntfs-v1-consumer-compat COMMAND ntfs-legacy-compat-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
  target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
  target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver)

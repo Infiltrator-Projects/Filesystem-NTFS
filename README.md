@@ -11,13 +11,12 @@ The published Debian package installs these three regular files. A manual native
 
 InfiltratorOS calls `--system-package-mode` and decides which outputs need updating. Its worker builds a missing or older SO, repairs the PDF independently, and stores the matching released kernel module when available. Use `--build-only --output DIRECTORY` to build a Debian package.
 
-## Common V2 runtime (1.0.11)
+## Common V2 migration (1.0.12)
 
-The installed NTFS.so exports `infiltrator_filesystem_api_v2` and no
-legacy NTFS V1 entrypoint. Common V2 provides bounded host-I/O media
-probing, read-only mount/unmount, and volume allocation query only when
-the canonical MFT and bitmap validate. The existing NTFS engine and
-recovery implementation remain source-owned but their legacy path/CLI
-and fixture entrypoints are not exposed through the production V2 ABI.
-File I/O, mutation, defragmentation, and recovery are not yet qualified
-through Common V2 and must not be represented as available operations.
+NTFS.so exports canonical Common V2 bounded-host probing, read-only
+mount/unmount and verified MFT/bitmap volume accounting. The existing V1
+worker/fixture entrypoint remains exported temporarily because the
+Defragmenter NTFS loader still uses it. Removing V1 before its consumer
+is migrated would silently break existing analysis and relayout services.
+Only validated V2 groups are advertised; V2 file access, mutation, defrag
+and recovery require a separately qualified consumer cutover.

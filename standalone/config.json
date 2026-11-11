@@ -3,5 +3,6 @@
   "module": "NTFS.so",
   "pdf": "docs/NTFS.pdf",
   "abi": "infiltrator_filesystem_api_v2",
+  "required_abis": ["infiltrator_filesystem_ntfs_v1"],
   "build_system": "cmake"
 }

@@ -15,7 +15,7 @@ jobs:
       - run: |
           test -f build/NTFS.so
           nm -D --defined-only build/NTFS.so | grep -F infiltrator_filesystem_api_v2
-          ! nm -D --defined-only build/NTFS.so | grep -E 'infiltrator_filesystem_.*_v1'
+          nm -D --defined-only build/NTFS.so | grep -F infiltrator_filesystem_ntfs_v1
 
       - name: Verify exactly one PDF per runtime SO
         shell: bash
