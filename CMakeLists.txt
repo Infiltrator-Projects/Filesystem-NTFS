@@ -52,7 +52,7 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
  # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
  add_executable(ntfs-legacy-compat-test tests/test_module.c)
- target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")
  target_link_libraries(ntfs-legacy-compat-test PRIVATE ntfs-driver)
  add_test(NAME ntfs-v1-consumer-compat COMMAND ntfs-legacy-compat-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
