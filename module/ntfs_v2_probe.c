@@ -76,6 +76,11 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
         !ifs_fs_host_v2_valid(host))
         return IFS_FS_INVALID;
     *output = NULL;
+    /* The native MFT/$Bitmap snapshot is qualified for read-only sessions
+     * only. An exclusive writable host must not silently acquire a mount
+     * until transactional V2 mutation and recovery have been qualified. */
+    if (!(host->capabilities & IFS_FS_HOST_READ_ONLY))
+        return IFS_FS_ACCESS;
     uint32_t variant = 0u;
     int result = native_probe(host, &variant);
     if (result) return result;
