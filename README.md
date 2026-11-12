@@ -14,9 +14,9 @@ InfiltratorOS calls `--system-package-mode` and decides which outputs need updat
 ## Common V2 migration (1.0.12)
 
 NTFS.so exports canonical Common V2 bounded-host probing, read-only
-mount/unmount and verified MFT/bitmap volume accounting. The existing V1
-worker/fixture entrypoint remains exported temporarily because the
-Defragmenter NTFS loader still uses it. Removing V1 before its consumer
+mount/unmount and verified MFT/bitmap volume accounting. The format-specific
+worker and fixture interface remains exported temporarily because the
+Defragmenter NTFS loader still uses it. Removing that interface before its consumer
 is migrated would silently break existing analysis and relayout services.
-Only validated V2 groups are advertised; V2 file access, mutation, defrag
+Only validated V2 groups are advertised; V2 formatting, file access, mutation, defrag
 and recovery require a separately qualified consumer cutover.
