@@ -478,19 +478,15 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
 }
 
 static NtfsStream *find_stream(NtfsCatalogue *catalogue,uint64_t record,uint32_t attr){for(size_t i=0;i<catalogue->count;++i)if(catalogue->items[i].record_number==record&&catalogue->items[i].attribute_offset==attr)return &catalogue->items[i];return NULL;}
-int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
-                      bool allow_dirty, char **error) {
-    NtfsVolume volume;
+int ntfs_verify_volume(NtfsVolume *volume, sqlite3 *db, bool growth,
+                       bool allow_dirty, char **error)
+{
     NtfsLayout layout;
     NtfsCatalogue catalogue;
-    if (ntfs_open_volume(stage, false, &volume, error) != 0) return -1;
-    if (ntfs_read_layout(&volume, allow_dirty, &layout, error) != 0) {
-        ntfs_close_volume(&volume);
+    if (ntfs_read_layout(volume, allow_dirty, &layout, error) != 0)
         return -1;
-    }
-    if (ntfs_scan_catalogue(&volume, &layout, &catalogue, error) != 0) {
+    if (ntfs_scan_catalogue(volume, &layout, &catalogue, error) != 0) {
         ntfs_layout_free(&layout);
-        ntfs_close_volume(&volume);
         return -1;
     }
 
@@ -521,7 +517,7 @@ int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
             goto final;
         }
         uint8_t digest[SHA256_DIGEST_LENGTH];
-        if (ntfs_stream_digest(&volume, stream, digest, error) != 0) goto final;
+        if (ntfs_stream_digest(volume, stream, digest, error) != 0) goto final;
         const void *stored = sqlite3_column_blob(streams, 5);
         if (stored == NULL || sqlite3_column_bytes(streams, 5) != SHA256_DIGEST_LENGTH ||
             memcmp(stored, digest, SHA256_DIGEST_LENGTH) != 0) {
@@ -530,8 +526,8 @@ int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
                            (unsigned long long)record);
             goto final;
         }
-        if (target > volume.total_clusters || clusters > volume.total_clusters - target ||
-            reserve > volume.total_clusters - target - clusters) {
+        if (target > volume->total_clusters || clusters > volume->total_clusters - target ||
+            reserve > volume->total_clusters - target - clusters) {
             ntfs_set_error(error,
                            "NTFS growth reserve for MFT record %llu extends beyond the filesystem",
                            (unsigned long long)record);
@@ -575,7 +571,7 @@ int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
             goto final;
         }
         uint8_t digest[SHA256_DIGEST_LENGTH];
-        if (ntfs_stream_digest(&volume, stream, digest, error) != 0) goto final;
+        if (ntfs_stream_digest(volume, stream, digest, error) != 0) goto final;
         const void *stored = sqlite3_column_blob(fixed, 5);
         if (stored == NULL || sqlite3_column_bytes(fixed, 5) != SHA256_DIGEST_LENGTH ||
             memcmp(stored, digest, SHA256_DIGEST_LENGTH) != 0) {
@@ -584,8 +580,9 @@ int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
                            (unsigned long long)record);
             goto final;
         }
-        if (start_cluster > volume.total_clusters || clusters > volume.total_clusters - start_cluster ||
-            reserve > volume.total_clusters - start_cluster - clusters) {
+        if (start_cluster > volume->total_clusters ||
+            clusters > volume->total_clusters - start_cluster ||
+            reserve > volume->total_clusters - start_cluster - clusters) {
             ntfs_set_error(error,
                            "NTFS preserved 10%% reserve for MFT record %llu extends beyond the filesystem",
                            (unsigned long long)record);
@@ -651,6 +648,15 @@ final:
 done:
     ntfs_catalogue_free(&catalogue);
     ntfs_layout_free(&layout);
+    return result;
+}
+
+int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
+                      bool allow_dirty, char **error)
+{
+    NtfsVolume volume;
+    if (ntfs_open_volume(stage, false, &volume, error) != 0) return -1;
+    const int result = ntfs_verify_volume(&volume, db, growth, allow_dirty, error);
     ntfs_close_volume(&volume);
     return result;
 }

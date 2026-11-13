@@ -222,6 +222,8 @@ int ntfs_restore_workspace(const char *device, sqlite3 *db, uint32_t cluster_siz
                            char **error);
 int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
                       bool allow_dirty, char **error);
+int ntfs_verify_volume(NtfsVolume *volume, sqlite3 *db, bool growth,
+                       bool allow_dirty, char **error);
 uint64_t ntfs_plan_move_count(sqlite3 *db, char **error);
 int ntfs_set_volume_dirty(NtfsVolume *volume, NtfsLayout *layout, bool dirty, char **error);
 

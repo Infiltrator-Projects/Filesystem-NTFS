@@ -131,6 +131,10 @@ static int check_map(const char *path, const char *payload)
     int status = 1;
     void *mounted = NULL;
     NtfsVolume media = {.fd = -1};
+    NtfsLayout layout = {0};
+    NtfsCatalogue catalogue = {0};
+    sqlite3 *plan = NULL;
+    sqlite3_stmt *record = NULL;
     char *error = NULL;
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
@@ -187,10 +191,56 @@ static int check_map(const char *path, const char *payload)
     CHECK(SHA256(payload_data, sizeof(payload_data), expected_digest));
     CHECK(ntfs_stream_digest(&media, &stream, digest, &error) == 0);
     CHECK(!memcmp(digest, expected_digest, sizeof(digest)));
+
+    /* Use the real catalogue to bind the plan to the provider's MFT
+     * identity and verify it through the same open read-only media host. */
+    CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
+    CHECK(ntfs_scan_catalogue(&media, &layout, &catalogue, &error) == 0);
+    const NtfsStream *file = NULL;
+    for (size_t i = 0; i < catalogue.count; ++i) {
+        const NtfsStream *candidate = &catalogue.items[i];
+        if (candidate->record_number >= NTFS_FIRST_USER_RECORD &&
+            candidate->attribute_type == NTFS_ATTR_DATA &&
+            !candidate->attribute_name[0] &&
+            candidate->runs.count == 1u && run_count == 1u &&
+            candidate->runs.items[0].lcn == runs[0].lcn &&
+            candidate->runs.items[0].length == runs[0].length) {
+            file = candidate;
+            break;
+        }
+    }
+    CHECK(file);
+    CHECK(sqlite3_open(":memory:", &plan) == SQLITE_OK);
+    CHECK(sqlite3_exec(plan,
+        "CREATE TABLE streams(record,attr,clusters,target,reserve,sha);"
+        "CREATE TABLE fixed_primary(record,attr,clusters,start,reserve,sha);",
+        NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(sqlite3_prepare_v2(plan, "INSERT INTO streams VALUES (?,?,?,?,0,?)",
+                             -1, &record, NULL) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(record, 1, (sqlite3_int64)file->record_number) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(record, 2, file->attribute_offset) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(record, 3, (sqlite3_int64)runs[0].length) == SQLITE_OK);
+    CHECK(sqlite3_bind_int64(record, 4, (sqlite3_int64)runs[0].lcn) == SQLITE_OK);
+    CHECK(sqlite3_bind_zeroblob(record, 5, SHA256_DIGEST_LENGTH) == SQLITE_OK);
+    CHECK(sqlite3_step(record) == SQLITE_DONE);
+    sqlite3_finalize(record);
+    record = NULL;
+    CHECK(ntfs_verify_volume(&media, plan, false, false, &error) != 0 && error);
+    CHECK(strstr(error, "payload checksum changed") != NULL);
+    free(error);
+    error = NULL;
+    CHECK(sqlite3_prepare_v2(plan, "UPDATE streams SET sha=?", -1, &record, NULL) == SQLITE_OK);
+    CHECK(sqlite3_bind_blob(record, 1, expected_digest, sizeof(expected_digest), SQLITE_STATIC) == SQLITE_OK);
+    CHECK(sqlite3_step(record) == SQLITE_DONE);
+    CHECK(ntfs_verify_volume(&media, plan, false, false, &error) == 0);
     status = 0;
 done:
     if (error) fprintf(stderr, "%s\n", error);
     free(error);
+    sqlite3_finalize(record);
+    sqlite3_close(plan);
+    ntfs_catalogue_free(&catalogue);
+    ntfs_layout_free(&layout);
     ntfs_close_volume(&media);
     if (mounted && core->unmount(mounted) != IFS_FS_OK) status = 1;
     if (source >= 0) close(source);

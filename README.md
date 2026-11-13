@@ -9,7 +9,9 @@ Independent filesystem implementation for InfiltratorOS, using the shared Common
 
 The published Debian package installs these three regular files. A manual native RUN compiles the shared object and Linux adapter locally, generates the PDF, and replaces all three files. It uses the running kernel headers by default. Use `--kernel-build DIRECTORY` for a prepared kernel build with `Module.symvers`. The kernel module is stored for manual use.
 
-InfiltratorOS calls `--system-package-mode` and decides which outputs need updating. Its worker builds a missing or older SO, repairs the PDF independently, and stores the matching released kernel module when available. Use `--build-only --output DIRECTORY` to build a Debian package.
+InfiltratorOS calls `--system-package-mode` to build and install the native
+shared object and PDF. Use `--build-only --output DIRECTORY` to build a
+Debian package.
 
 ## Common V2
 
@@ -27,4 +29,4 @@ FUSE-free NTFS runtime library. Common V2 also exposes read-only physical
 extent mapping for regular files. Sparse regions are gaps in the logical
 offsets. Resident data has no separate physical data extent. Compressed,
 encrypted and reparse-point files are outside the map contract. General
-namespace access, relocation and recovery remain pending.
+namespace access, relocation and recovery through Common V2 remain pending.
