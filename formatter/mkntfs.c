@@ -3033,7 +3033,8 @@ static BOOL mkntfs_initialize_rl_mft(void)
 	g_rl_mft[1].lcn = -1LL;
 	g_rl_mft[1].length = 0LL;
 	/* Allocate clusters for mft. */
-	bitmap_allocate(g_mft_lcn,j);
+	if (!bitmap_allocate(g_mft_lcn, j))
+		return FALSE;
 	/* Determine mftmirr_lcn (middle of volume). */
 	g_mftmirr_lcn = (opts.num_sectors * 512u >> 1)
 			/ g_vol->cluster_size;
@@ -3370,6 +3371,7 @@ static BOOL mkntfs_create_root_structures(void)
 	 */
 	for (i = 0; i < nr_sysfiles; i++) {
 		le32 file_attrs;
+		le32 security_id = const_cpu_to_le32(0);
 
 		m = (MFT_RECORD*)(g_buf + i * g_vol->mft_record_size);
 		if (i < 16 || i > 23) {
@@ -3385,24 +3387,19 @@ static BOOL mkntfs_create_root_structures(void)
 		/* file permissions for ntfs 3.x */
 		if (i == 0 || i == 1 || i == 2 || i == 6 || i == 8 ||
 				i == 10) {
-			add_attr_std_info(m, file_attrs,
-				const_cpu_to_le32(0x0100));
+			security_id = const_cpu_to_le32(0x0100);
 		} else if (i == 9) {
 			file_attrs |= FILE_ATTR_VIEW_INDEX_PRESENT;
-			add_attr_std_info(m, file_attrs,
-				const_cpu_to_le32(0x0101));
+			security_id = const_cpu_to_le32(0x0101);
 		} else if (i == 11) {
-			add_attr_std_info(m, file_attrs,
-				const_cpu_to_le32(0x0101));
+			security_id = const_cpu_to_le32(0x0101);
 		} else if (i == 24 || i == 25 || i == 26) {
 			file_attrs |= FILE_ATTR_ARCHIVE;
 			file_attrs |= FILE_ATTR_VIEW_INDEX_PRESENT;
-			add_attr_std_info(m, file_attrs,
-				const_cpu_to_le32(0x0101));
-		} else {
-			add_attr_std_info(m, file_attrs,
-				const_cpu_to_le32(0x00));
+			security_id = const_cpu_to_le32(0x0101);
 		}
+		if (add_attr_std_info(m, file_attrs, security_id))
+			return FALSE;
 	}
 	/* The root directory mft reference. */
 	root_ref = MK_LE_MREF(FILE_root, FILE_root);
