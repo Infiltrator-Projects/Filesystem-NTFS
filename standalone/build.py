@@ -26,22 +26,80 @@ if (not re.fullmatch(r"Filesystem-[A-Za-z0-9]+", REPO) or
     (ENGINE and not re.fullmatch(r"[0-9a-f]{40}", ENGINE))):
     raise RuntimeError("Invalid filesystem build identity")
 
-def run(args):
-    subprocess.run([str(x) for x in args], check=True)
+def run(args, **options):
+    subprocess.run([str(x) for x in args], check=True, **options)
+
+def installed(package):
+    return subprocess.run(
+        ["dpkg-query", "-W", "-f=${Status}", package], capture_output=True,
+        text=True).stdout.strip() == "install ok installed"
+
+def ntfs_runtime_package():
+    packages = ("libntfs-3g89t64", "libntfs-3g89")
+    for package in packages:
+        if installed(package):
+            return package
+    for package in packages:
+        query = subprocess.run(["apt-cache", "show", package], capture_output=True, text=True)
+        if f"Package: {package}" in query.stdout.splitlines():
+            return package
+    return None
 
 def install_deps():
     packages = ("build-essential", "binutils", "cmake", "git", "pkg-config",
-                "libssl-dev", "libsqlite3-dev", "ntfs-3g-dev", "ntfs-3g", "dpkg-dev")
-    missing = [p for p in packages if subprocess.run(
-        ["dpkg-query", "-W", "-f=$" + "{Status}", p], capture_output=True,
-        text=True).stdout.strip() != "install ok installed"]
+                "libssl-dev", "libsqlite3-dev", "dpkg-dev")
     tools = ("cc", "c++", "make", "cmake", "git", "readelf", "nm",
-             "dpkg-deb", "dpkg-query", "pkg-config", "ctest")
-    if missing or any(shutil.which(cmd) is None for cmd in tools):
-        prefix = [] if os.geteuid() == 0 else ["sudo"]
-        apt = [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=-1"]
+             "dpkg-deb", "dpkg-query", "dpkg-architecture", "pkg-config", "ctest")
+    prefix = [] if os.geteuid() == 0 else ["sudo"]
+    apt = [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=-1"]
+    runtime = ntfs_runtime_package()
+    if not runtime or not all(installed(p) for p in (*packages, runtime)) or any(
+            shutil.which(cmd) is None for cmd in tools):
         run([*apt, "update"])
-        run([*apt, "install", "-y", "--no-install-recommends", *packages])
+        runtime = ntfs_runtime_package()
+        if not runtime:
+            raise RuntimeError("The distribution does not provide libntfs-3g.so.89")
+        run([*apt, "install", "-y", "--no-install-recommends", *packages, runtime])
+    return runtime
+
+def ntfs_build_inputs(directory, runtime):
+    # Debian-family development and command packages depend on FUSE. APT
+    # authenticates their archives, then dpkg-deb extracts them in build
+    # scratch. Only the FUSE-free library package is installed on the host.
+    directory.mkdir()
+    packages = ("ntfs-3g-dev", "ntfs-3g", runtime)
+    command = ["apt-get", "-o", "Acquire::Retries=3", "download", *packages]
+    try:
+        run(command, cwd=directory)
+    except subprocess.CalledProcessError:
+        prefix = [] if os.geteuid() == 0 else ["sudo"]
+        run([*prefix, "apt-get", "update"])
+        run(command, cwd=directory)
+    root = directory / "root"
+    for package in packages:
+        archives = list(directory.glob(f"{package}_*.deb"))
+        if len(archives) != 1:
+            raise RuntimeError(f"Expected one APT archive for {package}")
+        run(["dpkg-deb", "-x", archives[0], root])
+    triplet = subprocess.check_output(
+        ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"], text=True).strip()
+    headers = root / "usr/include"
+    library = root / "usr/lib" / triplet / "libntfs-3g.so.89"
+    if not library.is_file() or not (headers / "ntfs-3g/device.h").is_file():
+        raise RuntimeError("The extracted NTFS SDK is missing its headers or runtime library")
+    extra = ["-DNTFS3G_INCLUDE_DIR=" + str(headers), "-DNTFS3G_LIBRARY=" + str(library),
+             "-DCMAKE_SKIP_RPATH=ON"]
+    for variable, tool in (("NTFS_LABEL_TOOL", "ntfslabel"), ("NTFS_FIX_TOOL", "ntfsfix"),
+                           ("NTFS_RESIZE_TOOL", "ntfsresize")):
+        found = next((root / d / tool for d in ("usr/bin", "usr/sbin", "bin", "sbin")
+                      if (root / d / tool).is_file()), None)
+        if not found:
+            raise RuntimeError(f"The extracted NTFS test tools are missing {tool}")
+        extra.append(f"-D{variable}={found}")
+    environment = os.environ.copy()
+    existing = environment.get("LD_LIBRARY_PATH")
+    environment["LD_LIBRARY_PATH"] = str(library.parent) + (":" + existing if existing else "")
+    return extra, environment
 
 def prepare_release_source():
     if not ENGINE:
@@ -103,7 +161,7 @@ def test(module, workspace=None):
     # CTest / make test are run for every pass by build(); this rechecks the installed bytes.
     inspect(module)
 
-def build(profile, module):
+def build(profile, module, runtime):
     if profile not in ("portable", "aggressive"):
         raise RuntimeError("Invalid filesystem build profile")
     flags = (["-O2", "-march=x86-64", "-mtune=generic"] if profile == "portable"
@@ -133,6 +191,18 @@ def build(profile, module):
         else:
             extra = (["-DIFS_EXT_BUILD_LEGACY_MULTIFORMAT_TEST_MODULES=ON"]
                      if ENGINE else [])
+            ntfs_options, test_environment = ntfs_build_inputs(Path(temporary) / "ntfs-sdk", runtime)
+            extra.extend(ntfs_options)
+            test_environment["LD_LIBRARY_PATH"] = str(dest) + ":" + test_environment["LD_LIBRARY_PATH"]
+
+            def compile_build(*options):
+                run(["cmake", "--build", dest, *options, "--parallel", "2"],
+                    env=test_environment)
+
+            def test_build():
+                run(["ctest", "--test-dir", dest, "--output-on-failure"],
+                    env=test_environment)
+
             def configure(cflags, ldflags=""):
                 run(["cmake", "-S", root, "-B", dest, "-DBUILD_TESTING=ON",
                      "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_C_FLAGS_RELEASE=" + cflags,
@@ -140,8 +210,8 @@ def build(profile, module):
                      "-DCMAKE_SHARED_LINKER_FLAGS=" + ldflags, *extra])
             if profile == "portable":
                 configure("-O2 -march=x86-64 -mtune=generic -DNDEBUG")
-                run(["cmake", "--build", dest, "--parallel", "2"])
-                run(["ctest", "--test-dir", dest, "--output-on-failure"])
+                compile_build()
+                test_build()
             else:
                 pg = dest / "profiles"
                 pg.mkdir()
@@ -149,13 +219,13 @@ def build(profile, module):
                 gen = "-fprofile-generate=" + str(pg)
                 use = "-fprofile-use=" + str(pg) + " -fprofile-correction -Wno-missing-profile"
                 configure(base + " " + gen, gen)
-                run(["cmake", "--build", dest, "--parallel", "2"])
-                run(["ctest", "--test-dir", dest, "--output-on-failure"])
+                compile_build()
+                test_build()
                 if not any(p.is_file() and p.stat().st_size for p in pg.rglob("*.gcda")):
                     raise RuntimeError("No measured PGO data for native filesystem")
                 configure(base + " " + use, "-fprofile-use=" + str(pg))
-                run(["cmake", "--build", dest, "--clean-first", "--parallel", "2"])
-                run(["ctest", "--test-dir", dest, "--output-on-failure"])
+                compile_build("--clean-first")
+                test_build()
         inspect(dest / NAME)
         shutil.copyfile(dest / NAME, module)
         inspect(module)
@@ -167,8 +237,8 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "build" / NAME)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    install_deps()
-    flags = build(args.profile, args.output.resolve())
+    runtime = install_deps()
+    flags = build(args.profile, args.output.resolve(), runtime)
     if args.check:
         test(args.output.resolve())
     print("QUALIFIED", NAME, args.profile, " ".join(flags))

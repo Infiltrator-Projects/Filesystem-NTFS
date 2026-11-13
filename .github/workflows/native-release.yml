@@ -7,6 +7,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: ntfs-native-release-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   qualify:
     runs-on: ubuntu-24.04
@@ -14,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build tools and pinned Common dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev ntfs-3g-dev ntfs-3g dpkg-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev
       - name: Qualify portable Debian and embed exact source into native RUN
         run: |
           set -euo pipefail
@@ -65,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev ntfs-3g-dev ntfs-3g dpkg-dev bc bison flex libelf-dev kmod
+          sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev bc bison flex libelf-dev kmod
           curl --fail --location --retry 5 https://codeload.github.com/gregkh/linux/tar.gz/f717995cb7dcd8998ab15516b8006aea09cfde0d -o "$RUNNER_TEMP/linux.tar.gz"
           mkdir -p "$RUNNER_TEMP/linux"
           tar -xzf "$RUNNER_TEMP/linux.tar.gz" -C "$RUNNER_TEMP/linux" --strip-components=1
@@ -126,6 +129,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          if [[ "$(git ls-remote origin refs/heads/main | cut -f1)" != "$GITHUB_SHA" ]]; then
+            echo "Skipping publication for a superseded main commit"
+            exit 0
+          fi
           version="$(tr -d '\r\n' < VERSION)"
           tag="v$version"
           test "$(find dist -maxdepth 1 -type f -name '*.deb' | wc -l)" = 1

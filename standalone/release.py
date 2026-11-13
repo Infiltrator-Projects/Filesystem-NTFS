@@ -50,8 +50,8 @@ def build_deb(profile, dest, kernel_target=None):
         root = Path(tmp) / "root"
         module = root / "System/Filesystems" / MODULE
         module.parent.mkdir(parents=True)
-        fsbuild.install_deps()
-        flags = fsbuild.build(profile, module)
+        runtime = fsbuild.install_deps()
+        flags = fsbuild.build(profile, module, runtime)
         fsbuild.test(module)
         if hasattr(fsbuild, "cleanup_test_artifacts"):
             fsbuild.cleanup_test_artifacts(module)

@@ -21,6 +21,8 @@ new filesystem structures and leaves unallocated sectors untouched.
 
 Formatting runs inside NTFS.so and writes through the exclusive Common V2
 host. The [format engine](formatter/README.md) uses libntfs-3g helpers and
-requires no FUSE mount or formatter subprocess. Common V2 namespace operations,
+requires no FUSE mount or formatter subprocess. The native build extracts its
+NTFS development and test files into temporary storage and installs only the
+FUSE-free NTFS runtime library. Common V2 namespace operations,
 relocation and recovery remain pending. Defragmenter still uses the dedicated
 NTFS relocation and fixture interfaces.
