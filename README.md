@@ -11,12 +11,16 @@ The published Debian package installs these three regular files. A manual native
 
 InfiltratorOS calls `--system-package-mode` and decides which outputs need updating. Its worker builds a missing or older SO, repairs the PDF independently, and stores the matching released kernel module when available. Use `--build-only --output DIRECTORY` to build a Debian package.
 
-## Common V2 migration (1.0.12)
+## Common V2
 
-NTFS.so exports canonical Common V2 bounded-host probing, read-only
-mount/unmount and verified MFT/bitmap volume accounting. The format-specific
-worker and fixture interface remains exported temporarily because the
-Defragmenter NTFS loader still uses it. Removing that interface before its consumer
-is migrated would silently break existing analysis and relayout services.
-Only validated V2 groups are advertised; V2 formatting, file access, mutation, defrag
-and recovery require a separately qualified consumer cutover.
+NTFS.so provides probing, read-only mount and verified MFT and bitmap volume
+accounting. Its Common V2 formatter creates NTFS 3.1 data volumes using the
+variant returned by its probe (`1`). It supports 512-byte logical sectors,
+including 512e, and UTF-8 volume labels up to 128 UTF-16 code units. It creates
+new filesystem structures and leaves unallocated sectors untouched.
+
+Formatting runs inside NTFS.so and writes through the exclusive Common V2
+host. The [format engine](formatter/README.md) uses libntfs-3g helpers and
+requires no FUSE mount or formatter subprocess. Common V2 namespace operations,
+relocation and recovery remain pending. Defragmenter still uses the dedicated
+NTFS relocation and fixture interfaces.

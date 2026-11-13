@@ -1,0 +1,138 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+#include <infiltratr/filesystem_module_v2.h>
+#include <fcntl.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+
+extern const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void);
+
+enum { SECTOR = 512, IMAGE_BYTES = 64 * 1024 * 1024 };
+
+typedef struct {
+    int fd;
+    unsigned writes;
+    unsigned flushes;
+    unsigned fail_flush;
+} Image;
+
+#define CHECK(x) do { if (!(x)) { fprintf(stderr, "NTFS format: %s\n", #x); goto done; } } while (0)
+
+static int bounds(uint64_t offset, uint32_t bytes)
+{
+    return bytes && bytes <= 4096u && !(bytes % SECTOR) &&
+           !(offset % SECTOR) && offset <= IMAGE_BYTES &&
+           bytes <= IMAGE_BYTES - offset;
+}
+
+static int read_at(void *context, uint64_t offset, void *data, uint32_t bytes)
+{
+    Image *image = context;
+    return !bounds(offset, bytes) ||
+           pread(image->fd, data, bytes, (off_t)offset) != (ssize_t)bytes;
+}
+
+static int write_at(void *context, uint64_t offset, const void *data, uint32_t bytes)
+{
+    Image *image = context;
+    ++image->writes;
+    return !bounds(offset, bytes) ||
+           pwrite(image->fd, data, bytes, (off_t)offset) != (ssize_t)bytes;
+}
+
+static int flush(void *context)
+{
+    Image *image = context;
+    ++image->flushes;
+    return image->flushes == image->fail_flush || fsync(image->fd);
+}
+
+static void *allocate(void *context, size_t bytes)
+{
+    (void)context;
+    return malloc(bytes);
+}
+
+static void release(void *context, void *data)
+{
+    (void)context;
+    free(data);
+}
+
+static int invalid_signatures(Image *image)
+{
+    uint8_t primary[SECTOR], backup[SECTOR], zero[SECTOR] = {0};
+    return !read_at(image, 0, primary, sizeof(primary)) &&
+           !read_at(image, IMAGE_BYTES - SECTOR, backup, sizeof(backup)) &&
+           !memcmp(primary, zero, SECTOR) && !memcmp(backup, zero, SECTOR);
+}
+
+int main(int argc, char **argv)
+{
+    if (argc != 2) return 2;
+    Image image = {.fd = open(argv[1], O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600)};
+    if (image.fd < 0) return 2;
+    int status = 1;
+    const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
+    CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
+    const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
+    const IfsFsVolumeOpsV2 *volume = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
+    CHECK(core && core->probe && volume && volume->format);
+    CHECK(ftruncate(image.fd, IMAGE_BYTES) == 0);
+    IfsFsHostRuntimeV2 host = {
+        .abi_version = IFS_FS_HOST_ABI_V2,
+        .structure_bytes = sizeof(host),
+        .capabilities = IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE,
+        .volume_bytes = IMAGE_BYTES, .logical_sector_bytes = SECTOR,
+        .physical_sector_bytes = 4096, .maximum_transfer_bytes = 4096,
+        .context = &image, .read_at = read_at, .write_at = write_at,
+        .flush = flush, .allocate = allocate, .release = release,
+    };
+    IfsFsHostRuntimeV2 reader = host;
+    reader.capabilities = IFS_FS_HOST_READ_ONLY;
+    reader.write_at = NULL;
+    reader.flush = NULL;
+    CHECK(volume->format(&reader, 1u, "Locked", 0u) == IFS_FS_ACCESS);
+    CHECK(volume->format(&host, 0u, "Bad variant", 0u) == IFS_FS_UNSUPPORTED);
+    CHECK(volume->format(&host, 1u, "Bad flags", 1u) == IFS_FS_UNSUPPORTED);
+    CHECK(volume->format(&host, 1u, "\xC0\x80", 0u) == IFS_FS_INVALID);
+    char long_label[130];
+    memset(long_label, 'x', sizeof(long_label) - 1u);
+    long_label[sizeof(long_label) - 1u] = '\0';
+    CHECK(volume->format(&host, 1u, long_label, 0u) == IFS_FS_INVALID);
+    host.logical_sector_bytes = 4096;
+    CHECK(volume->format(&host, 1u, NULL, 0u) == IFS_FS_UNSUPPORTED);
+    host.logical_sector_bytes = SECTOR;
+    CHECK(image.writes == 0 && image.flushes == 0);
+
+    CHECK(volume->format(&host, 1u, "Before retry", 0u) == IFS_FS_OK);
+    image.writes = 0;
+    image.flushes = 0;
+    image.fail_flush = 2u;
+    CHECK(volume->format(&host, 1u, "Uncommitted", 0u) == IFS_FS_IO_ERROR);
+    CHECK(image.writes > 2 && invalid_signatures(&image));
+    image.fail_flush = 0;
+    image.flushes = 0;
+    CHECK(volume->format(&host, 1u, "Caf\xC3\xA9 \xF0\x9F\x9A\x80", 0u) == IFS_FS_OK);
+    CHECK(image.flushes >= 4);
+    uint32_t variant = 0;
+    CHECK(core->probe(&reader, &variant) == IFS_FS_OK && variant == 1u);
+    IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
+    void *mounted = NULL;
+    CHECK(core->mount(&reader, &mounted, &info) == IFS_FS_OK);
+    CHECK(info.variant == 1u && info.block_bytes == 4096u &&
+          info.total_bytes == IMAGE_BYTES - SECTOR &&
+          info.free_bytes > 0 && info.free_bytes < info.total_bytes);
+    CHECK(core->unmount(mounted) == IFS_FS_OK);
+    uint8_t primary[SECTOR], backup[SECTOR];
+    CHECK(!read_at(&image, 0, primary, sizeof(primary)));
+    CHECK(!read_at(&image, IMAGE_BYTES - SECTOR, backup, sizeof(backup)));
+    CHECK(!memcmp(primary, backup, sizeof(primary)));
+    status = 0;
+done:
+    if (close(image.fd)) status = 1;
+    if (status) unlink(argv[1]);
+    return status;
+}

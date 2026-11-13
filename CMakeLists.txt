@@ -6,6 +6,8 @@ include(FetchContent)
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
+find_path(NTFS3G_INCLUDE_DIR NAMES ntfs-3g/device.h REQUIRED)
+find_library(NTFS3G_LIBRARY NAMES ntfs-3g REQUIRED)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -19,11 +21,22 @@ FetchContent_MakeAvailable(infiltratr_common)
 # by this standalone filesystem package.
 set_property(DIRECTORY "${infiltratr_common_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/version.h" "#define LD_VERSION \"${PROJECT_VERSION}\"\n")
+add_library(ntfs-formatter OBJECT formatter/mkntfs.c formatter/format_device.c
+ formatter/boot.c formatter/attrdef.c formatter/sd.c)
+target_include_directories(ntfs-formatter SYSTEM PRIVATE "${NTFS3G_INCLUDE_DIR}/ntfs-3g")
+target_compile_definitions(ntfs-formatter PRIVATE
+ _GNU_SOURCE _FILE_OFFSET_BITS=64 HAVE_STDDEF_H HAVE_SYS_TYPES_H HAVE_STDARG_H
+ HAVE_TIME_H HAVE_SYS_STAT_H HAVE_STDIO_H HAVE_FFS)
+target_compile_options(ntfs-formatter PRIVATE -Wall -Wextra -Werror -fvisibility=hidden)
+# The imported on-disk structures use packed little-endian fields on x86-64.
+set_source_files_properties(formatter/mkntfs.c formatter/sd.c PROPERTIES
+ COMPILE_OPTIONS "-Wno-address-of-packed-member")
+target_link_libraries(ntfs-formatter PRIVATE InfiltratrCommon::Common)
 add_library(ntfs-driver SHARED
  native/ntfs_catalog.c native/ntfs_common.c native/ntfs_plan.c
  native/ntfs_plan_db.cpp native/ntfs_transaction.c native/ntfs_worker.c
  compat/legacy_services.c compat/runtime_alloc.c module/ntfs_module.c module/ntfs_v2_probe.c
- fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c)
+ fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c $<TARGET_OBJECTS:ntfs-formatter>)
 set_source_files_properties(native/ntfs_worker.c
  PROPERTIES COMPILE_DEFINITIONS "main=ifs_ntfs_worker_main")
 set_source_files_properties(fixtures/ntfs_codec.c PROPERTIES
@@ -36,7 +49,8 @@ target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
  "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include"
  "${CMAKE_CURRENT_BINARY_DIR}" "${infiltratr_common_SOURCE_DIR}/include")
-target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads)
+target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3
+ Threads::Threads "${NTFS3G_LIBRARY}")
 if(BUILD_TESTING)
  # Qualify V2 directly against bounded host I/O, without publishing a
  # probe-only binary as a fully functional NTFS filesystem.
@@ -50,6 +64,16 @@ if(BUILD_TESTING)
  target_compile_options(ntfs-v2-probe-test PRIVATE
    -Wall -Wextra -Wpedantic -Werror)
  add_test(NAME ntfs-native-v2-probe COMMAND ntfs-v2-probe-test)
+ add_executable(ntfs-v2-format-test tests/test_ntfs_v2_format.c)
+ target_compile_definitions(ntfs-v2-format-test PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
+ target_compile_options(ntfs-v2-format-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+ target_link_libraries(ntfs-v2-format-test PRIVATE ntfs-driver InfiltratrCommon::Common)
+ find_program(NTFS_LABEL_TOOL ntfslabel REQUIRED)
+ find_program(NTFS_FIX_TOOL ntfsfix REQUIRED)
+ find_program(NTFS_RESIZE_TOOL ntfsresize REQUIRED)
+ add_test(NAME ntfs-native-v2-format
+  COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
+    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}")
  # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
  add_executable(ntfs-legacy-compat-test tests/test_module.c)
  target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")
@@ -57,7 +81,7 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-v1-consumer-compat COMMAND ntfs-legacy-compat-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
  target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
- target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver)
+ target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver SQLite::SQLite3)
  add_test(NAME ntfs-native-stream-index COMMAND ntfs-stream-index-test)
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
  target_include_directories(ntfs-journal-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")

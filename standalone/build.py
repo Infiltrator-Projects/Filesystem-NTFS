@@ -31,7 +31,7 @@ def run(args):
 
 def install_deps():
     packages = ("build-essential", "binutils", "cmake", "git", "pkg-config",
-                "libssl-dev", "libsqlite3-dev", "dpkg-dev")
+                "libssl-dev", "libsqlite3-dev", "ntfs-3g-dev", "ntfs-3g", "dpkg-dev")
     missing = [p for p in packages if subprocess.run(
         ["dpkg-query", "-W", "-f=$" + "{Status}", p], capture_output=True,
         text=True).stdout.strip() != "install ok installed"]
@@ -81,7 +81,8 @@ def dependencies(module):
     mapping = {"libc.so.6": None, "libpthread.so.0": None, "libm.so.6": None,
                "ld-linux-x86-64.so.2": None, "libcrypto.so.3": "libssl3t64 | libssl3",
                "libsqlite3.so.0": "libsqlite3-0", "libstdc++.so.6": "libstdc++6",
-               "libgcc_s.so.1": "libgcc-s1"}
+               "libgcc_s.so.1": "libgcc-s1",
+               "libntfs-3g.so.89": "libntfs-3g89t64 | libntfs-3g89"}
     if libs - set(mapping):
         raise RuntimeError("Unexpected external filesystem runtime dependencies: " +
                            repr(sorted(libs - set(mapping))))

@@ -1,7 +1,7 @@
 name: Qualify and release portable DEB and CPU-native source RUN
 on:
   push:
-    branches: [main, feature/python-native-packaging-20261101]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build tools and pinned Common dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev ntfs-3g-dev ntfs-3g dpkg-dev
       - name: Qualify portable Debian and embed exact source into native RUN
         run: |
           set -euo pipefail
@@ -65,7 +65,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev bc bison flex libelf-dev kmod
+          sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev ntfs-3g-dev ntfs-3g dpkg-dev bc bison flex libelf-dev kmod
           curl --fail --location --retry 5 https://codeload.github.com/gregkh/linux/tar.gz/f717995cb7dcd8998ab15516b8006aea09cfde0d -o "$RUNNER_TEMP/linux.tar.gz"
           mkdir -p "$RUNNER_TEMP/linux"
           tar -xzf "$RUNNER_TEMP/linux.tar.gz" -C "$RUNNER_TEMP/linux" --strip-components=1

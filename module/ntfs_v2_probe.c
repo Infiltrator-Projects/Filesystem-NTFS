@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later
- * Native Common V2 NTFS media probe. No V1 service binding and no fd/path I/O.
- * The host verifies raw partition ownership; this code validates its boot
- * geometry without claiming namespace or mutation operations.
+ * Common V2 probing, volume accounting and offline formatting.
+ * The host owns the partition lease and all raw I/O.
  */
 #include <infiltratr/filesystem_module_v2.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include "ntfs_native.h"
+#include "../formatter/format_device.h"
 /* The real NTFS MFT and $Bitmap readers run against Common V2 host I/O,
  * not a copied device path. Only a completely qualified, clean volume may
  * provide its actual total/free cluster accounting. */
@@ -138,8 +138,9 @@ static int native_unmount(void *handle)
 
 static const IfsFsVolumeOpsV2 volume_ops = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsVolumeOpsV2),
-        IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY },
-    .query = ntfs_volume_query
+        IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT },
+    .query = ntfs_volume_query,
+    .format = ifs_ntfs_format
 };
 static const IfsFsCoreOpsV2 core = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),

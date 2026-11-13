@@ -30,8 +30,8 @@ int main(void) {
           !core->stat && !core->read && !core->write);
     const IfsFsVolumeOpsV2 *volume_ops = (const void *)
         ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
-    CHECK(volume_ops && volume_ops->query &&
-          volume_ops->header.capabilities == IFS_FS_VOLUME_QUERY);
+    CHECK(volume_ops && volume_ops->query && volume_ops->format &&
+          volume_ops->header.capabilities == (IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT));
     IfsFsHostRuntimeV2 h = {0};
     h.abi_version=IFS_FS_HOST_ABI_V2; h.structure_bytes=sizeof(h);
     h.capabilities=IFS_FS_HOST_READ_ONLY; h.volume_bytes=sizeof(disk);
