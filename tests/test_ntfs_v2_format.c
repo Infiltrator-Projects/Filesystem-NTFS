@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include <infiltratr/filesystem_module_v2.h>
 #include <fcntl.h>
+#include <openssl/sha.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -129,6 +130,8 @@ static int check_map(const char *path, const char *payload)
     int source = open(payload, O_RDONLY | O_NOFOLLOW);
     int status = 1;
     void *mounted = NULL;
+    NtfsVolume media = {.fd = -1};
+    char *error = NULL;
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
     const IfsFsDefragOpsV2 *ops = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_DEFRAG);
@@ -144,6 +147,9 @@ static int check_map(const char *path, const char *payload)
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
     CHECK(core->mount(&host, &mounted, &info) == IFS_FS_OK && mounted);
     IfsFsExtentV2 extent = {0};
+    NtfsRun runs[5];
+    size_t run_count = 0u;
+    uint8_t payload_data[5u * 4096u];
     uint32_t written = 7;
     CHECK(ops->map(mounted, "/missing", 0, &extent, 1, &written) == IFS_FS_NOT_FOUND && !written);
     CHECK(ops->map(mounted, "/", 0, &extent, 1, &written) == IFS_FS_UNSUPPORTED && !written);
@@ -159,6 +165,11 @@ static int check_map(const char *path, const char *payload)
         CHECK(extent.logical_offset == bytes && extent.length > 0 &&
               extent.length <= 5u * 4096u - bytes &&
               extent.physical_offset % info.block_bytes == 0u);
+        CHECK(run_count < 5u && extent.length % info.block_bytes == 0u);
+        runs[run_count++] = (NtfsRun){
+            .lcn = extent.physical_offset / info.block_bytes,
+            .length = extent.length / info.block_bytes,
+        };
         uint8_t actual[4096], expected[4096];
         for (uint64_t offset = 0; offset < extent.length; offset += sizeof(actual)) {
             const size_t count = extent.length - offset < sizeof(actual) ?
@@ -166,11 +177,21 @@ static int check_map(const char *path, const char *payload)
             CHECK(pread(source, expected, count, (off_t)(bytes + offset)) == (ssize_t)count);
             CHECK(pread(image.fd, actual, count, (off_t)(extent.physical_offset + offset)) == (ssize_t)count);
             CHECK(!memcmp(actual, expected, count));
+            memcpy(payload_data + bytes + offset, expected, count);
         }
         bytes += extent.length;
     }
+    CHECK(ntfs_open_host(&host, &media, &error) == 0);
+    const NtfsStream stream = {.runs = {.items = runs, .count = run_count}};
+    uint8_t digest[SHA256_DIGEST_LENGTH], expected_digest[SHA256_DIGEST_LENGTH];
+    CHECK(SHA256(payload_data, sizeof(payload_data), expected_digest));
+    CHECK(ntfs_stream_digest(&media, &stream, digest, &error) == 0);
+    CHECK(!memcmp(digest, expected_digest, sizeof(digest)));
     status = 0;
 done:
+    if (error) fprintf(stderr, "%s\n", error);
+    free(error);
+    ntfs_close_volume(&media);
     if (mounted && core->unmount(mounted) != IFS_FS_OK) status = 1;
     if (source >= 0) close(source);
     if (image.fd >= 0) close(image.fd);

@@ -10,7 +10,6 @@
  */
 extern "C" {
 #include "ntfs_native.h"
-#include "ld_io.h"
 }
 #include <openssl/evp.h>
 #include <openssl/sha.h>
@@ -66,7 +65,24 @@ extern "C" int ntfs_stream_digest(NtfsVolume *volume,const NtfsStream *stream,st
         ntfs_set_error(error,"allocating NTFS payload digest buffer failed");
         return -1;
     }
-    for(std::size_t r=0;r<stream->runs.count;++r){NtfsRun run=stream->runs.items[r];if(run.sparse){ntfs_set_error(error,"sparse NTFS stream entered native writer");return -1;}for(std::uint64_t c=0;c<run.length;++c){std::uint64_t offset=(run.lcn+c)*static_cast<std::uint64_t>(volume->cluster_size);ssize_t got=ld_pread_full(volume->fd,buffer.data(),cluster_size,offset);if(got<0||static_cast<std::size_t>(got)!=cluster_size||EVP_DigestUpdate(context.get(),buffer.data(),cluster_size)!=1){ntfs_set_error(error,"reading NTFS payload for verification failed");return -1;}}}
+    for (std::size_t r = 0; r < stream->runs.count; ++r) {
+        const NtfsRun &run = stream->runs.items[r];
+        if (run.sparse || run.lcn >= volume->total_clusters ||
+            run.length > volume->total_clusters - run.lcn) {
+            ntfs_set_error(error, "NTFS payload digest requires allocated clusters within the volume");
+            return -1;
+        }
+        NtfsRunVec single_run = {&stream->runs.items[r], 1u, 1u};
+        for (std::uint64_t c = 0; c < run.length; ++c) {
+            if (ntfs_read_stream(volume, &single_run, c * cluster_size,
+                                 buffer.data(), cluster_size, error) != 0)
+                return -1;
+            if (EVP_DigestUpdate(context.get(), buffer.data(), cluster_size) != 1) {
+                ntfs_set_error(error, "updating NTFS payload digest failed");
+                return -1;
+            }
+        }
+    }
     unsigned int digest_length=0U;if(EVP_DigestFinal_ex(context.get(),digest,&digest_length)!=1||digest_length!=SHA256_DIGEST_LENGTH){ntfs_set_error(error,"finalizing NTFS payload digest failed");return -1;}return 0;
 }
 
