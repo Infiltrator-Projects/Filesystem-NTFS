@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "ntfs_native.h"
 
 extern const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void);
 
@@ -67,6 +68,59 @@ static int invalid_signatures(Image *image)
     return !read_at(image, 0, primary, sizeof(primary)) &&
            !read_at(image, IMAGE_BYTES - SECTOR, backup, sizeof(backup)) &&
            !memcmp(primary, zero, SECTOR) && !memcmp(backup, zero, SECTOR);
+}
+
+static int check_metadata_writes(Image *image, const IfsFsHostRuntimeV2 *writer,
+                                 const IfsFsHostRuntimeV2 *reader)
+{
+    NtfsVolume media = {.fd = -1};
+    NtfsLayout layout = {0};
+    char *error = NULL;
+    int status = 1;
+    CHECK(ntfs_open_host(reader, &media, &error) == 0);
+    CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
+    const unsigned writes_before = image->writes;
+    CHECK(ntfs_set_volume_dirty(&media, &layout, true, &error) != 0);
+    CHECK(image->writes == writes_before);
+    free(error);
+    error = NULL;
+    ntfs_layout_free(&layout);
+    ntfs_close_volume(&media);
+
+    CHECK(ntfs_open_host(writer, &media, &error) == 0);
+    CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
+    /* Exercise the partial-sector bitmap path without changing allocation. */
+    const uint64_t bitmap_offset = layout.bitmap_runs.items[0].lcn * media.cluster_size;
+    uint8_t before[SECTOR], after[SECTOR];
+    CHECK(!read_at(image, bitmap_offset, before, sizeof(before)));
+    CHECK(ntfs_write_stream(&media, &layout.bitmap_runs, 1u, before + 1u, 1u, &error) == 0);
+    CHECK(!read_at(image, bitmap_offset, after, sizeof(after)));
+    CHECK(!memcmp(before, after, sizeof(before)) && image->writes == writes_before + 1u);
+    const unsigned flushes_before = image->flushes;
+    CHECK(ntfs_set_volume_dirty(&media, &layout, true, &error) == 0);
+    CHECK(image->writes == writes_before + 3u &&
+          image->flushes == flushes_before + 1u);
+    ntfs_layout_free(&layout);
+    CHECK(ntfs_read_layout(&media, false, &layout, &error) != 0);
+    free(error);
+    error = NULL;
+    CHECK(ntfs_read_layout(&media, true, &layout, &error) == 0);
+
+    image->fail_flush = image->flushes + 1u;
+    CHECK(ntfs_set_volume_dirty(&media, &layout, false, &error) != 0);
+    image->fail_flush = 0u;
+    free(error);
+    error = NULL;
+    CHECK(ntfs_set_volume_dirty(&media, &layout, false, &error) == 0);
+    ntfs_layout_free(&layout);
+    CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
+    status = 0;
+done:
+    if (error) fprintf(stderr, "%s\n", error);
+    free(error);
+    ntfs_layout_free(&layout);
+    ntfs_close_volume(&media);
+    return status;
 }
 
 static int check_map(const char *path, const char *payload)
@@ -185,6 +239,7 @@ int main(int argc, char **argv)
     CHECK(!read_at(&image, 0, primary, sizeof(primary)));
     CHECK(!read_at(&image, IMAGE_BYTES - SECTOR, backup, sizeof(backup)));
     CHECK(!memcmp(primary, backup, sizeof(primary)));
+    CHECK(check_metadata_writes(&image, &host, &reader) == 0);
     status = 0;
 done:
     if (close(image.fd)) status = 1;

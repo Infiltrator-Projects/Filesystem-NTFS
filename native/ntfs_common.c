@@ -231,27 +231,27 @@ int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_siz
     return 0;
 }
 
-/* The canonical NTFS MFT parser can operate on authenticated Common V2
- * partition-relative media without materialising a temporary device path.
- * Unaligned metadata/bitmap reads are rounded to logical host sectors.
- * Host-backed volumes are strictly read-only until the writer is ported. */
-static ssize_t ntfs_device_pread_full(const NtfsVolume *volume, void *dst,
-                                      size_t count, uint64_t offset)
+/* NTFS metadata records and bitmaps can be smaller than the physical I/O
+ * request. Keep all host transfers within the authenticated partition and
+ * preserve the other bytes of a logical sector during an exclusive write.
+ * Once a metadata write starts, only its caller's transaction can stop it. */
+static ssize_t ntfs_host_transfer(const IfsFsHostRuntimeV2 *host, void *data,
+                                  size_t count, uint64_t offset, bool write)
 {
-    const IfsFsHostRuntimeV2 *host = volume->host;
-    if (!host) return ld_pread_full(volume->fd, dst, count, offset);
-    if (!ifs_fs_host_v2_valid(host) || (!dst && count) ||
+    if (!ifs_fs_host_v2_valid(host) || (!data && count) ||
+        (write && (host->capabilities & IFS_FS_HOST_READ_ONLY)) ||
         count > (size_t)SSIZE_MAX || offset > host->volume_bytes ||
         count > host->volume_bytes - offset) return -1;
     const uint32_t sector = host->logical_sector_bytes;
     const uint32_t maximum = host->maximum_transfer_bytes -
                              host->maximum_transfer_bytes % sector;
-    uint8_t *buffer = dst, *bounce = NULL;
+    uint8_t *buffer = data, *bounce = NULL;
     const size_t original = count;
     ssize_t result = -1;
     if (!maximum) return -1;
     while (count) {
-        if (host->cancelled && host->cancelled(host->context)) goto done;
+        if (!write && host->cancelled && host->cancelled(host->context))
+            goto done;
         uint32_t within = (uint32_t)(offset % sector);
         if (within || count < sector) {
             const uint64_t at = offset - within;
@@ -265,12 +265,19 @@ static ssize_t ntfs_device_pread_full(const NtfsVolume *volume, void *dst,
             }
             if (host->read_at(host->context, at, bounce, sector) != 0)
                 goto done;
-            memcpy(buffer, bounce + within, n);
+            if (write) {
+                memcpy(bounce + within, buffer, n);
+                if (host->write_at(host->context, at, bounce, sector) != 0)
+                    goto done;
+            } else {
+                memcpy(buffer, bounce + within, n);
+            }
             buffer += n; offset += n; count -= n;
         } else {
             const uint32_t n = count >= maximum
                 ? maximum : (uint32_t)(count - count % sector);
-            if (!n || host->read_at(host->context, offset, buffer, n) != 0)
+            if ((write ? host->write_at(host->context, offset, buffer, n)
+                       : host->read_at(host->context, offset, buffer, n)) != 0)
                 goto done;
             buffer += n; offset += n; count -= n;
         }
@@ -279,6 +286,29 @@ static ssize_t ntfs_device_pread_full(const NtfsVolume *volume, void *dst,
 done:
     if (bounce) host->release(host->context, bounce);
     return result;
+}
+
+static ssize_t ntfs_device_pread_full(const NtfsVolume *volume, void *data,
+                                      size_t count, uint64_t offset)
+{
+    return volume->host
+        ? ntfs_host_transfer(volume->host, data, count, offset, false)
+        : ld_pread_full(volume->fd, data, count, offset);
+}
+
+static ssize_t ntfs_device_pwrite_full(const NtfsVolume *volume, const void *data,
+                                       size_t count, uint64_t offset)
+{
+    return volume->host
+        ? ntfs_host_transfer(volume->host, (void *)data, count, offset, true)
+        : ld_pwrite_full(volume->fd, data, count, offset);
+}
+
+static int ntfs_device_sync(const NtfsVolume *volume)
+{
+    if (!volume->host) return fsync(volume->fd);
+    if (!volume->host->flush) return -1;
+    return volume->host->flush(volume->host->context);
 }
 
 /* The on-disk geometry policy is shared by native fd and V2 host entrypoints.
@@ -441,7 +471,7 @@ static int stream_segments_rw(const NtfsVolume *volume, const NtfsRunVec *runs,
         size_t take = available < remaining ? (size_t)available : remaining;
         if (run->sparse) { ntfs_set_error(error,"sparse run encountered in an NTFS metadata stream"); return -1; }
         uint64_t physical = run->lcn * volume->cluster_size + within;
-        ssize_t count = write ? ld_pwrite_full(volume->fd,(uint8_t*)buffer+consumed,take,physical)
+        ssize_t count = write ? ntfs_device_pwrite_full(volume,(uint8_t*)buffer+consumed,take,physical)
                               : ntfs_device_pread_full(volume,(uint8_t*)buffer+consumed,take,physical);
         if (count < 0 || (size_t)count != take) { ntfs_set_error(error,"short NTFS metadata-stream %s",write?"write":"read"); return -1; }
         consumed += take; remaining -= take; wanted += take; cursor += run_bytes;
@@ -576,7 +606,7 @@ int ntfs_write_bitmap(const NtfsVolume *volume,const NtfsLayout *layout,char **e
 int ntfs_set_volume_dirty(NtfsVolume *volume,NtfsLayout *layout,bool dirty,char **error){
     uint8_t *raw=NULL,*fixed=NULL;if(ntfs_read_record(volume,&layout->mft_runs,3,&raw,&fixed,error)!=0)return -1;NtfsAttributeVec attrs={0};if(ntfs_parse_attributes(fixed,volume->record_size,&attrs,error)!=0){free(raw);free(fixed);return -1;}int result=-1;
     for(size_t i=0;i<attrs.count;++i){NtfsAttribute *a=&attrs.items[i];if(a->type!=NTFS_ATTR_VOLUME_INFORMATION||a->nonresident)continue;uint16_t off=ntfs_u16(fixed,a->offset+20U);uint32_t len=ntfs_u32(fixed,a->offset+16U);if(len<12U||(uint32_t)off+len>a->length){ntfs_set_error(error,"invalid NTFS volume-information attribute");break;}size_t flag_off=(size_t)a->offset+off+10U;uint16_t flags=ntfs_u16(fixed,flag_off);if(!dirty&&validate_flags(flags,true,error)!=0)break;flags=dirty?(uint16_t)(flags|NTFS_VOLUME_DIRTY):(uint16_t)(flags&~NTFS_VOLUME_DIRTY);ntfs_put_u16(fixed,flag_off,flags);if(ntfs_prepare_fixups(fixed,volume->record_size,volume->bytes_per_sector,raw,error)!=0)break;if(ntfs_write_record(volume,&layout->mft_runs,3,raw,error)!=0)break;
-        uint64_t mirror_off=volume->mftmirr_lcn*volume->cluster_size+3U*volume->record_size;uint8_t *mirror_raw=ld_xmalloc(volume->record_size),*mirror_fixed=ld_xmalloc(volume->record_size);ssize_t got=ntfs_device_pread_full(volume,mirror_raw,volume->record_size,mirror_off);if(got<0||(size_t)got!=volume->record_size||ntfs_apply_fixups(mirror_raw,volume->record_size,volume->bytes_per_sector,mirror_fixed,error)!=0){free(mirror_raw);free(mirror_fixed);break;}NtfsAttributeVec ma={0};if(ntfs_parse_attributes(mirror_fixed,volume->record_size,&ma,error)!=0){free(mirror_raw);free(mirror_fixed);break;}bool found=false;for(size_t j=0;j<ma.count;++j){NtfsAttribute *m=&ma.items[j];if(m->type==NTFS_ATTR_VOLUME_INFORMATION&&!m->nonresident){uint16_t mo=ntfs_u16(mirror_fixed,m->offset+20U);size_t mf=(size_t)m->offset+mo+10U;uint16_t mv=ntfs_u16(mirror_fixed,mf);mv=dirty?(uint16_t)(mv|NTFS_VOLUME_DIRTY):(uint16_t)(mv&~NTFS_VOLUME_DIRTY);ntfs_put_u16(mirror_fixed,mf,mv);found=true;break;}}if(!found){ntfs_set_error(error,"NTFS $MFTMirr lacks $Volume record");ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}if(ntfs_prepare_fixups(mirror_fixed,volume->record_size,volume->bytes_per_sector,mirror_raw,error)!=0){ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}ssize_t wrote=ld_pwrite_full(volume->fd,mirror_raw,volume->record_size,mirror_off);ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);if(wrote<0||(size_t)wrote!=volume->record_size){ntfs_set_error(error,"writing NTFS mirrored volume state failed");break;}if(fsync(volume->fd)!=0){ntfs_set_error(error,"syncing NTFS volume state failed: %s",strerror(errno));break;}result=0;break;}
+        uint64_t mirror_off=volume->mftmirr_lcn*volume->cluster_size+3U*volume->record_size;uint8_t *mirror_raw=ld_xmalloc(volume->record_size),*mirror_fixed=ld_xmalloc(volume->record_size);ssize_t got=ntfs_device_pread_full(volume,mirror_raw,volume->record_size,mirror_off);if(got<0||(size_t)got!=volume->record_size||ntfs_apply_fixups(mirror_raw,volume->record_size,volume->bytes_per_sector,mirror_fixed,error)!=0){free(mirror_raw);free(mirror_fixed);break;}NtfsAttributeVec ma={0};if(ntfs_parse_attributes(mirror_fixed,volume->record_size,&ma,error)!=0){free(mirror_raw);free(mirror_fixed);break;}bool found=false;for(size_t j=0;j<ma.count;++j){NtfsAttribute *m=&ma.items[j];if(m->type==NTFS_ATTR_VOLUME_INFORMATION&&!m->nonresident){uint16_t mo=ntfs_u16(mirror_fixed,m->offset+20U);size_t mf=(size_t)m->offset+mo+10U;uint16_t mv=ntfs_u16(mirror_fixed,mf);mv=dirty?(uint16_t)(mv|NTFS_VOLUME_DIRTY):(uint16_t)(mv&~NTFS_VOLUME_DIRTY);ntfs_put_u16(mirror_fixed,mf,mv);found=true;break;}}if(!found){ntfs_set_error(error,"NTFS $MFTMirr lacks $Volume record");ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}if(ntfs_prepare_fixups(mirror_fixed,volume->record_size,volume->bytes_per_sector,mirror_raw,error)!=0){ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}ssize_t wrote=ntfs_device_pwrite_full(volume,mirror_raw,volume->record_size,mirror_off);ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);if(wrote<0||(size_t)wrote!=volume->record_size){ntfs_set_error(error,"writing NTFS mirrored volume state failed");break;}if(ntfs_device_sync(volume)!=0){ntfs_set_error(error,"syncing NTFS volume state failed: %s",strerror(errno));break;}result=0;break;}
     if (result != 0 && error != NULL && *error == NULL)
         ntfs_set_error(error, "NTFS volume-information attribute was not found");
     ntfs_attributes_free(&attrs);
