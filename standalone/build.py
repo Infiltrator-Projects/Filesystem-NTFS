@@ -84,8 +84,10 @@ def ntfs_build_inputs(directory, runtime):
     triplet = subprocess.check_output(
         ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"], text=True).strip()
     headers = root / "usr/include"
-    library = root / "usr/lib" / triplet / "libntfs-3g.so.89"
-    if not library.is_file() or not (headers / "ntfs-3g/device.h").is_file():
+    library = next((root / d / "libntfs-3g.so.89"
+                    for d in (f"usr/lib/{triplet}", f"lib/{triplet}", "usr/lib", "lib")
+                    if (root / d / "libntfs-3g.so.89").is_file()), None)
+    if not library or not (headers / "ntfs-3g/device.h").is_file():
         raise RuntimeError("The extracted NTFS SDK is missing its headers or runtime library")
     extra = ["-DNTFS3G_INCLUDE_DIR=" + str(headers), "-DNTFS3G_LIBRARY=" + str(library),
              "-DCMAKE_SKIP_RPATH=ON"]
