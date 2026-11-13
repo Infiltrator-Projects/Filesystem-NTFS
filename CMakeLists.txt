@@ -36,6 +36,7 @@ add_library(ntfs-driver SHARED
  native/ntfs_catalog.c native/ntfs_common.c native/ntfs_plan.c
  native/ntfs_plan_db.cpp native/ntfs_transaction.c native/ntfs_worker.c
  compat/legacy_services.c compat/runtime_alloc.c module/ntfs_module.c module/ntfs_v2_probe.c
+ module/ntfs_v2_map.c
  fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c $<TARGET_OBJECTS:ntfs-formatter>)
 set_source_files_properties(native/ntfs_worker.c
  PROPERTIES COMPILE_DEFINITIONS "main=ifs_ntfs_worker_main")
@@ -44,6 +45,8 @@ set_source_files_properties(fixtures/ntfs_codec.c PROPERTIES
 set_target_properties(ntfs-driver PROPERTIES PREFIX "" OUTPUT_NAME "NTFS" SUFFIX ".so")
 target_compile_definitions(ntfs-driver PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
 target_compile_options(ntfs-driver PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_include_directories(ntfs-driver SYSTEM PRIVATE "${NTFS3G_INCLUDE_DIR}")
+set_source_files_properties(module/ntfs_v2_map.c PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
 target_link_options(ntfs-driver PRIVATE -Wl,-z,defs)
 target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
@@ -71,9 +74,10 @@ if(BUILD_TESTING)
  find_program(NTFS_LABEL_TOOL ntfslabel REQUIRED)
  find_program(NTFS_FIX_TOOL ntfsfix REQUIRED)
  find_program(NTFS_RESIZE_TOOL ntfsresize REQUIRED)
+ find_program(NTFS_COPY_TOOL ntfscp REQUIRED)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
-    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}")
+    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}" "${NTFS_COPY_TOOL}")
  # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
  add_executable(ntfs-legacy-compat-test tests/test_module.c)
  target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")

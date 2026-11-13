@@ -92,7 +92,7 @@ def ntfs_build_inputs(directory, runtime):
     extra = ["-DNTFS3G_INCLUDE_DIR=" + str(headers), "-DNTFS3G_LIBRARY=" + str(library),
              "-DCMAKE_SKIP_RPATH=ON"]
     for variable, tool in (("NTFS_LABEL_TOOL", "ntfslabel"), ("NTFS_FIX_TOOL", "ntfsfix"),
-                           ("NTFS_RESIZE_TOOL", "ntfsresize")):
+                           ("NTFS_RESIZE_TOOL", "ntfsresize"), ("NTFS_COPY_TOOL", "ntfscp")):
         found = next((root / d / tool for d in ("usr/bin", "usr/sbin", "bin", "sbin")
                       if (root / d / tool).is_file()), None)
         if not found:

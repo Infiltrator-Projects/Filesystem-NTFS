@@ -18,6 +18,10 @@ typedef struct {
     uint64_t free_clusters;
 } MountedNtfs;
 
+int ifs_ntfs_map_readonly(const IfsFsHostRuntimeV2 *host, const char *path,
+                         uint64_t first, IfsFsExtentV2 *out,
+                         uint32_t capacity, uint32_t *written);
+
 static int native_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant)
 {
     if (!variant || !ifs_fs_host_v2_valid(host))
@@ -136,6 +140,25 @@ static int native_unmount(void *handle)
     return IFS_FS_OK;
 }
 
+static int map_file(void *handle, const char *path, uint64_t first,
+                    IfsFsExtentV2 *out, uint32_t capacity, uint32_t *written)
+{
+    const MountedNtfs *volume = handle;
+    if (!written)
+        return IFS_FS_INVALID;
+    *written = 0u;
+    if (!volume || !out || !capacity ||
+        !(volume->host.capabilities & IFS_FS_HOST_READ_ONLY))
+        return IFS_FS_INVALID;
+    return ifs_ntfs_map_readonly(&volume->host, path, first, out, capacity, written);
+}
+
+static const IfsFsDefragOpsV2 defrag_ops = {
+    .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsDefragOpsV2),
+        IFS_FS_GROUP_DEFRAG, 0u, IFS_FS_DEFRAG_MAP },
+    .map = map_file
+};
+
 static const IfsFsVolumeOpsV2 volume_ops = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsVolumeOpsV2),
         IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT },
@@ -154,12 +177,13 @@ static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
         return NULL;
     if (id == IFS_FS_GROUP_CORE) return &core.header;
     if (id == IFS_FS_GROUP_VOLUME) return &volume_ops.header;
+    if (id == IFS_FS_GROUP_DEFRAG) return &defrag_ops.header;
     return NULL;
 }
 static const IfsFsModuleApiV2 api = {
     IFS_FS_COMMON_ABI_V2, sizeof(IfsFsModuleApiV2), "ntfs",
     IFS_FS_PROFILE_HOSTED, IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE) |
-        IFS_FS_GROUP_BIT(IFS_FS_GROUP_VOLUME), query
+        IFS_FS_GROUP_BIT(IFS_FS_GROUP_VOLUME) | IFS_FS_GROUP_BIT(IFS_FS_GROUP_DEFRAG), query
 };
 __attribute__((visibility("default")))
 const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void) { return &api; }

@@ -69,10 +69,65 @@ static int invalid_signatures(Image *image)
            !memcmp(primary, zero, SECTOR) && !memcmp(backup, zero, SECTOR);
 }
 
+static int check_map(const char *path, const char *payload)
+{
+    Image image = {.fd = open(path, O_RDONLY | O_NOFOLLOW)};
+    int source = open(payload, O_RDONLY | O_NOFOLLOW);
+    int status = 1;
+    void *mounted = NULL;
+    const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
+    const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
+    const IfsFsDefragOpsV2 *ops = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_DEFRAG);
+    CHECK(image.fd >= 0 && source >= 0);
+    CHECK(core && ops && ops->header.capabilities == IFS_FS_DEFRAG_MAP);
+    const IfsFsHostRuntimeV2 host = {
+        .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
+        .capabilities = IFS_FS_HOST_READ_ONLY, .volume_bytes = IMAGE_BYTES,
+        .logical_sector_bytes = SECTOR, .physical_sector_bytes = 4096,
+        .maximum_transfer_bytes = 4096, .context = &image,
+        .read_at = read_at, .allocate = allocate, .release = release,
+    };
+    IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
+    CHECK(core->mount(&host, &mounted, &info) == IFS_FS_OK && mounted);
+    IfsFsExtentV2 extent = {0};
+    uint32_t written = 7;
+    CHECK(ops->map(mounted, "/missing", 0, &extent, 1, &written) == IFS_FS_NOT_FOUND && !written);
+    CHECK(ops->map(mounted, "/", 0, &extent, 1, &written) == IFS_FS_UNSUPPORTED && !written);
+    CHECK(ops->map(mounted, "/../Cafe.bin", 0, &extent, 1, &written) == IFS_FS_INVALID && !written);
+    uint64_t bytes = 0;
+    for (uint64_t page = 0;; ++page) {
+        const int result = ops->map(mounted, "/CAF\xC3\x89.BIN", page, &extent, 1, &written);
+        if (result == IFS_FS_END) {
+            CHECK(!written && bytes == 5u * 4096u);
+            break;
+        }
+        CHECK(result == IFS_FS_OK && written == 1);
+        CHECK(extent.logical_offset == bytes && extent.length > 0 &&
+              extent.length <= 5u * 4096u - bytes &&
+              extent.physical_offset % info.block_bytes == 0u);
+        uint8_t actual[4096], expected[4096];
+        for (uint64_t offset = 0; offset < extent.length; offset += sizeof(actual)) {
+            const size_t count = extent.length - offset < sizeof(actual) ?
+                                 (size_t)(extent.length - offset) : sizeof(actual);
+            CHECK(pread(source, expected, count, (off_t)(bytes + offset)) == (ssize_t)count);
+            CHECK(pread(image.fd, actual, count, (off_t)(extent.physical_offset + offset)) == (ssize_t)count);
+            CHECK(!memcmp(actual, expected, count));
+        }
+        bytes += extent.length;
+    }
+    status = 0;
+done:
+    if (mounted && core->unmount(mounted) != IFS_FS_OK) status = 1;
+    if (source >= 0) close(source);
+    if (image.fd >= 0) close(image.fd);
+    return status;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 3) return check_map(argv[1], argv[2]);
     if (argc != 2) return 2;
-    Image image = {.fd = open(argv[1], O_RDWR | O_CREAT | O_TRUNC | O_NOFOLLOW, 0600)};
+    Image image = {.fd = open(argv[1], O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600)};
     if (image.fd < 0) return 2;
     int status = 1;
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();

@@ -23,6 +23,8 @@ Formatting runs inside NTFS.so and writes through the exclusive Common V2
 host. The [format engine](formatter/README.md) uses libntfs-3g helpers and
 requires no FUSE mount or formatter subprocess. The native build extracts its
 NTFS development and test files into temporary storage and installs only the
-FUSE-free NTFS runtime library. Common V2 namespace operations,
-relocation and recovery remain pending. Defragmenter still uses the dedicated
-NTFS relocation and fixture interfaces.
+FUSE-free NTFS runtime library. Common V2 also exposes read-only physical
+extent mapping for regular files. Sparse regions are gaps in the logical
+offsets. Resident data has no separate physical data extent. Compressed,
+encrypted and reparse-point files are outside the map contract. General
+namespace access, relocation and recovery remain pending.
