@@ -227,9 +227,13 @@ int ntfs_restore_workspace(const char *device, sqlite3 *db, uint32_t cluster_siz
                            char **error);
 /* Caller retains the exclusive, durable V2 host lease across all phases.
  * These primitives do not yet constitute a complete V2 defrag operation. */
+__attribute__((visibility("hidden")))
 int ntfs_stage_host_workspace(const IfsFsHostRuntimeV2 *, sqlite3 *, uint32_t, char **);
+__attribute__((visibility("hidden")))
 int ntfs_verify_host_workspace(const IfsFsHostRuntimeV2 *, sqlite3 *, uint32_t, char **);
+__attribute__((visibility("hidden")))
 int ntfs_place_host_workspace(const IfsFsHostRuntimeV2 *, sqlite3 *, uint32_t, bool, char **);
+__attribute__((visibility("hidden")))
 int ntfs_restore_host_workspace(const IfsFsHostRuntimeV2 *, sqlite3 *, uint32_t, char **);
 int ntfs_verify_stage(const char *stage, sqlite3 *db, bool growth,
                       bool allow_dirty, char **error);
