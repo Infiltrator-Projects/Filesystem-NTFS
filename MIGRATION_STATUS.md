@@ -5,3 +5,10 @@ The independent NTFS module repository now contains all 29 canonical source/desi
 `standalone/kernel.json` builds `ntfs3.ko` from this repository's source, without retrieving a pinned older Filesystems source archive. The independent `.so` is still subject to its ABI and real-media qualification tests; copying the kernel driver does not itself mean the shared object implements full NTFS read/write.
 
 Central source deletion requires an independent kernel build and runtime test plus detachment of the central test/package consumers. The Linux source must not be forked again in Filesystems after that cutover.
+
+NTFS metadata-plan application can now use an existing exclusive, durable
+Common V2 storage lease without reopening the target by pathname. Its
+disposable-image tests cover rejection before writes and failed durability.
+This primitive alone does not qualify V2 relocation or crash recovery; those
+operations remain unavailable through the Common V2 defragmentation group
+until their complete transaction and recovery paths have been migrated.

@@ -124,6 +124,79 @@ done:
     return status;
 }
 
+/* Exercise the actual NTFS metadata-plan implementation against the same
+ * bounded host lease used by Common V2. No real block device is involved. */
+static int check_host_metadata_plan(Image *image, const IfsFsHostRuntimeV2 *writer,
+                                    const IfsFsHostRuntimeV2 *reader)
+{
+    NtfsVolume writable = {.fd = -1}, readonly = {.fd = -1};
+    NtfsLayout layout = {0};
+    sqlite3 *plan = NULL;
+    sqlite3_stmt *statement = NULL;
+    char *error = NULL;
+    int status = 1;
+    CHECK(ntfs_open_host(reader, &readonly, &error) == 0);
+    CHECK(ntfs_open_host(writer, &writable, &error) == 0);
+    CHECK(ntfs_read_layout(&writable, false, &layout, &error) == 0);
+    CHECK(sqlite3_open(":memory:", &plan) == SQLITE_OK);
+    CHECK(sqlite3_exec(plan,
+        "CREATE TABLE streams(record INTEGER,attr INTEGER,clusters INTEGER,target INTEGER);"
+        "CREATE TABLE metadata(key TEXT PRIMARY KEY,value BLOB);",
+        NULL, NULL, NULL) == SQLITE_OK);
+    const unsigned before = image->writes;
+    CHECK(ntfs_apply_host_metadata(&readonly, plan, false, &error) != 0 && error);
+    CHECK(image->writes == before);
+    free(error); error = NULL;
+    IfsFsHostRuntimeV2 unleased = *writer;
+    unleased.capabilities &= ~IFS_FS_HOST_EXCLUSIVE;
+    NtfsVolume forged = writable;
+    forged.host = &unleased;
+    CHECK(ntfs_apply_host_metadata(&forged, plan, false, &error) != 0 && error);
+    CHECK(image->writes == before);
+    free(error); error = NULL;
+    /* A missing or malformed bitmap must fail before the first disk write. */
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) != 0 && error);
+    CHECK(image->writes == before);
+    free(error); error = NULL;
+    CHECK(sqlite3_exec(plan, "INSERT INTO metadata VALUES('bitmap',x'00')",
+                       NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) != 0 && error);
+    CHECK(image->writes == before);
+    free(error); error = NULL;
+    CHECK(layout.bitmap_bytes <= INT32_MAX);
+    CHECK(sqlite3_prepare_v2(plan, "UPDATE metadata SET value=? WHERE key='bitmap'", -1,
+                             &statement, NULL) == SQLITE_OK);
+    CHECK(sqlite3_bind_blob(statement, 1, layout.bitmap, (int)layout.bitmap_bytes,
+                            SQLITE_TRANSIENT) == SQLITE_OK);
+    CHECK(sqlite3_step(statement) == SQLITE_DONE);
+    sqlite3_finalize(statement); statement = NULL;
+    CHECK(sqlite3_exec(plan, "INSERT INTO streams VALUES(24,0,1,-1)",
+                       NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) != 0 && error);
+    CHECK(image->writes == before);
+    free(error); error = NULL;
+    CHECK(sqlite3_exec(plan, "DELETE FROM streams", NULL, NULL, NULL) == SQLITE_OK);
+    const unsigned flushes = image->flushes;
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) == 0);
+    CHECK(image->writes > before && image->flushes == flushes + 1u);
+    image->fail_flush = image->flushes + 1u;
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) != 0 && error);
+    image->fail_flush = 0u;
+    free(error); error = NULL;
+    CHECK(ntfs_apply_host_metadata(&writable, plan, false, &error) == 0);
+    status = 0;
+done:
+    image->fail_flush = 0u;
+    if (error) fprintf(stderr, "%s\n", error);
+    free(error);
+    sqlite3_finalize(statement);
+    sqlite3_close(plan);
+    ntfs_layout_free(&layout);
+    ntfs_close_volume(&readonly);
+    ntfs_close_volume(&writable);
+    return status;
+}
+
 static int check_map(const char *path, const char *payload)
 {
     Image image = {.fd = open(path, O_RDONLY | O_NOFOLLOW)};
@@ -311,6 +384,7 @@ int main(int argc, char **argv)
     CHECK(!read_at(&image, IMAGE_BYTES - SECTOR, backup, sizeof(backup)));
     CHECK(!memcmp(primary, backup, sizeof(primary)));
     CHECK(check_metadata_writes(&image, &host, &reader) == 0);
+    CHECK(check_host_metadata_plan(&image, &host, &reader) == 0);
     status = 0;
 done:
     if (close(image.fd)) status = 1;

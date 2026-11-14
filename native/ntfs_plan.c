@@ -230,12 +230,139 @@ int ntfs_permute_stage(const char *stage,sqlite3 *db,uint32_t cluster_size,uint6
     if(placed!=move_count||fsync(fd)!=0){ntfs_set_error(error,"NTFS cluster permutation did not complete durably");goto fail;}sqlite3_finalize(term);sqlite3_finalize(pred);sqlite3_finalize(mark);sqlite3_finalize(unplaced);close(fd);return 0;
 fail:sqlite3_finalize(term);sqlite3_finalize(pred);sqlite3_finalize(mark);sqlite3_finalize(unplaced);close(fd);return -1;}
 
-int ntfs_apply_stage_metadata(const char *stage,sqlite3 *db,bool allow_dirty,const char *target_identity,uint64_t physical_bytes,char **error){NtfsVolume volume;NtfsLayout layout;if(ntfs_open_volume(stage,true,&volume,error)!=0)return -1;if(target_identity!=NULL&&!ld_fd_matches_identity(volume.fd,target_identity,physical_bytes)){ntfs_set_error(error,"NTFS writable metadata descriptor does not match the journaled target");ntfs_close_volume(&volume);return -1;}if(ntfs_read_layout(&volume,allow_dirty,&layout,error)!=0){ntfs_close_volume(&volume);return -1;}sqlite3_stmt *streams=NULL;if(sqlite3_prepare_v2(db,"SELECT record,attr,clusters,target FROM streams ORDER BY record,attr",-1,&streams,NULL)!=SQLITE_OK){sql_error(db,error,"reading NTFS stream metadata plan");goto fail;}int state;while((state=sqlite3_step(streams))==SQLITE_ROW){uint64_t record=(uint64_t)sqlite3_column_int64(streams,0);uint32_t attr_off=(uint32_t)sqlite3_column_int(streams,1);uint64_t clusters=(uint64_t)sqlite3_column_int64(streams,2),target=(uint64_t)sqlite3_column_int64(streams,3);uint8_t *raw=NULL,*fixed=NULL;if(ntfs_read_record(&volume,&layout.mft_runs,record,&raw,&fixed,error)!=0)goto fail_stream;NtfsAttributeVec attrs={0};if(ntfs_parse_attributes(fixed,volume.record_size,&attrs,error)!=0){free(raw);free(fixed);goto fail_stream;}NtfsAttribute *wanted=NULL;for(size_t i=0;i<attrs.count;++i)if(attrs.items[i].offset==attr_off){wanted=&attrs.items[i];break;}if(!wanted||!wanted->nonresident||wanted->run_offset>=wanted->length){ntfs_set_error(error,"NTFS planned attribute moved or changed before metadata commit");ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail_stream;}size_t capacity=wanted->length-wanted->run_offset;uint8_t *mapping=fixed+wanted->offset+wanted->run_offset;memset(mapping,0,capacity);size_t used=0;if(ntfs_encode_single_run(target,clusters,mapping,capacity,&used,error)!=0){ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail_stream;}(void)used;ntfs_put_u64(fixed,wanted->offset+24U,wanted->lowest_vcn+clusters-1U);ntfs_put_u64(fixed,wanted->offset+40U,clusters*volume.cluster_size);if(ntfs_prepare_fixups(fixed,volume.record_size,volume.bytes_per_sector,raw,error)!=0||ntfs_write_record(&volume,&layout.mft_runs,record,raw,error)!=0){ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail_stream;}ntfs_attributes_free(&attrs);free(raw);free(fixed);continue;fail_stream:sqlite3_finalize(streams);goto fail;}
-    if(state!=SQLITE_DONE){sql_error(db,error,"reading NTFS stream metadata plan");sqlite3_finalize(streams);goto fail;}sqlite3_finalize(streams);
-    sqlite3_stmt *meta=NULL;if(sqlite3_prepare_v2(db,"SELECT value FROM metadata WHERE key='bitmap'",-1,&meta,NULL)!=SQLITE_OK||sqlite3_step(meta)!=SQLITE_ROW){sqlite3_finalize(meta);sql_error(db,error,"reading NTFS final bitmap");goto fail;}const void *blob=sqlite3_column_blob(meta,0);int bytes=sqlite3_column_bytes(meta,0);if(blob==NULL||bytes<0||(size_t)bytes!=layout.bitmap_bytes){sqlite3_finalize(meta);ntfs_set_error(error,"NTFS final bitmap has the wrong size");goto fail;}memcpy(layout.bitmap,blob,layout.bitmap_bytes);sqlite3_finalize(meta);if(ntfs_write_bitmap(&volume,&layout,error)!=0||fsync(volume.fd)!=0){if(error&&*error==NULL)ntfs_set_error(error,"syncing NTFS stage metadata failed");goto fail;}ntfs_layout_free(&layout);ntfs_close_volume(&volume);return 0;
-fail:ntfs_layout_free(&layout);ntfs_close_volume(&volume);return -1;}
+/* Apply a previously validated metadata plan through the volume already
+ * owned by the caller. The caller owns crash recovery and the storage lease. */
+static int apply_volume_metadata(NtfsVolume *volume, sqlite3 *db,
+                                 bool allow_dirty, char **error)
+{
+    NtfsLayout layout = {0};
+    sqlite3_stmt *streams = NULL, *meta = NULL;
+    uint8_t *bitmap = NULL;
+    int result = -1;
+    if (!volume || !db || !volume->cluster_size) {
+        ntfs_set_error(error, "NTFS metadata plan has no valid volume or database");
+        return -1;
+    }
+    if (ntfs_read_layout(volume, allow_dirty, &layout, error) != 0) {
+        ntfs_layout_free(&layout);
+        return -1;
+    }
+    /* Validate and copy the final allocation map before the first mutation. */
+    if (sqlite3_prepare_v2(db, "SELECT value FROM metadata WHERE key='bitmap'", -1,
+                           &meta, NULL) != SQLITE_OK || sqlite3_step(meta) != SQLITE_ROW) {
+        sql_error(db, error, "reading NTFS final bitmap");
+        goto done;
+    }
+    const void *blob = sqlite3_column_blob(meta, 0);
+    int bytes = sqlite3_column_bytes(meta, 0);
+    if (!blob || bytes < 0 || (size_t)bytes != layout.bitmap_bytes) {
+        ntfs_set_error(error, "NTFS final bitmap has the wrong size");
+        goto done;
+    }
+    bitmap = malloc(layout.bitmap_bytes);
+    if (!bitmap) {
+        ntfs_set_error(error, "allocating NTFS final bitmap failed");
+        goto done;
+    }
+    memcpy(bitmap, blob, layout.bitmap_bytes);
+    sqlite3_finalize(meta);
+    meta = NULL;
+    if (sqlite3_prepare_v2(db, "SELECT record,attr,clusters,target FROM streams ORDER BY record,attr",
+                           -1, &streams, NULL) != SQLITE_OK) {
+        sql_error(db, error, "reading NTFS stream metadata plan");
+        goto done;
+    }
+    int state;
+    while ((state = sqlite3_step(streams)) == SQLITE_ROW) {
+        uint64_t record = (uint64_t)sqlite3_column_int64(streams, 0);
+        uint32_t attr_off = (uint32_t)sqlite3_column_int(streams, 1);
+        uint64_t clusters = (uint64_t)sqlite3_column_int64(streams, 2);
+        uint64_t target = (uint64_t)sqlite3_column_int64(streams, 3);
+        uint8_t *raw = NULL, *fixed = NULL;
+        NtfsAttributeVec attrs = {0};
+        int stream_result = -1;
+        if (!clusters || target >= volume->total_clusters ||
+            clusters > volume->total_clusters - target ||
+            clusters > UINT64_MAX / volume->cluster_size) {
+            ntfs_set_error(error, "NTFS planned stream geometry is invalid");
+            goto stream_done;
+        }
+        if (ntfs_read_record(volume, &layout.mft_runs, record, &raw, &fixed, error) != 0 ||
+            ntfs_parse_attributes(fixed, volume->record_size, &attrs, error) != 0)
+            goto stream_done;
+        NtfsAttribute *wanted = NULL;
+        for (size_t i = 0; i < attrs.count; ++i)
+            if (attrs.items[i].offset == attr_off) { wanted = &attrs.items[i]; break; }
+        if (!wanted || !wanted->nonresident || wanted->run_offset >= wanted->length ||
+            wanted->lowest_vcn > UINT64_MAX - (clusters - 1u)) {
+            ntfs_set_error(error, "NTFS planned attribute moved or changed before metadata commit");
+            goto stream_done;
+        }
+        size_t capacity = wanted->length - wanted->run_offset;
+        uint8_t *mapping = fixed + wanted->offset + wanted->run_offset;
+        memset(mapping, 0, capacity);
+        size_t used = 0;
+        if (ntfs_encode_single_run(target, clusters, mapping, capacity, &used, error) != 0)
+            goto stream_done;
+        ntfs_put_u64(fixed, wanted->offset + 24u, wanted->lowest_vcn + clusters - 1u);
+        ntfs_put_u64(fixed, wanted->offset + 40u, clusters * volume->cluster_size);
+        if (ntfs_prepare_fixups(fixed, volume->record_size, volume->bytes_per_sector,
+                                raw, error) != 0 ||
+            ntfs_write_record(volume, &layout.mft_runs, record, raw, error) != 0)
+            goto stream_done;
+        stream_result = 0;
+stream_done:
+        ntfs_attributes_free(&attrs);
+        free(raw);
+        free(fixed);
+        if (stream_result != 0) goto done;
+    }
+    if (state != SQLITE_DONE) {
+        sql_error(db, error, "reading NTFS stream metadata plan");
+        goto done;
+    }
+    memcpy(layout.bitmap, bitmap, layout.bitmap_bytes);
+    if (ntfs_write_bitmap(volume, &layout, error) != 0 || ntfs_sync_volume(volume) != 0) {
+        if (error && !*error) ntfs_set_error(error, "syncing NTFS stage metadata failed");
+        goto done;
+    }
+    result = 0;
+done:
+    sqlite3_finalize(meta);
+    sqlite3_finalize(streams);
+    free(bitmap);
+    ntfs_layout_free(&layout);
+    return result;
+}
 
+int ntfs_apply_host_metadata(NtfsVolume *volume, sqlite3 *db, bool allow_dirty,
+                             char **error)
+{
+    const IfsFsHostRuntimeV2 *host = volume ? volume->host : NULL;
+    if (!ifs_fs_host_v2_valid(host) || (host->capabilities & IFS_FS_HOST_READ_ONLY) ||
+        (host->capabilities & (IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE)) !=
+            (IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE)) {
+        ntfs_set_error(error, "NTFS metadata mutation requires an exclusive durable V2 lease");
+        return -1;
+    }
+    return apply_volume_metadata(volume, db, allow_dirty, error);
+}
 
+int ntfs_apply_stage_metadata(const char *stage, sqlite3 *db, bool allow_dirty,
+                              const char *target_identity, uint64_t physical_bytes,
+                              char **error)
+{
+    NtfsVolume volume = {.fd = -1};
+    if (ntfs_open_volume(stage, true, &volume, error) != 0) return -1;
+    if (target_identity && !ld_fd_matches_identity(volume.fd, target_identity, physical_bytes)) {
+        ntfs_set_error(error, "NTFS writable metadata descriptor does not match the journaled target");
+        ntfs_close_volume(&volume);
+        return -1;
+    }
+    int result = apply_volume_metadata(&volume, db, allow_dirty, error);
+    ntfs_close_volume(&volume);
+    return result;
+}
 
 static int workspace_digest(const uint8_t *data, size_t length,
                             uint8_t digest[SHA256_DIGEST_LENGTH], char **error) {

@@ -191,6 +191,7 @@ void ntfs_catalogue_free(NtfsCatalogue *catalogue);
 int ntfs_bitmap_bit(const NtfsLayout *layout, uint64_t cluster);
 void ntfs_bitmap_set(NtfsLayout *layout, uint64_t cluster, bool used);
 int ntfs_write_bitmap(const NtfsVolume *volume, const NtfsLayout *layout, char **error);
+int ntfs_sync_volume(const NtfsVolume *volume);
 
 int ntfs_plan_layout(NtfsLayout *layout, NtfsCatalogue *catalogue, uint64_t total_clusters,
                      bool growth, NtfsPlacementVec *placements, char **error);
@@ -206,6 +207,10 @@ int ntfs_permute_stage(const char *stage, sqlite3 *db, uint32_t cluster_size,
 int ntfs_apply_stage_metadata(const char *stage, sqlite3 *db, bool allow_dirty,
                               const char *target_identity, uint64_t physical_bytes,
                               char **error);
+/* The caller retains the exclusive Common V2 host lease throughout this
+ * operation; it must already have a recovery plan before modifying metadata. */
+int ntfs_apply_host_metadata(NtfsVolume *volume, sqlite3 *db, bool allow_dirty,
+                             char **error);
 int ntfs_prepare_workspace_map(sqlite3 *db, uint64_t workspace_start,
                                uint64_t workspace_clusters, char **error);
 int ntfs_stage_workspace(const char *device, sqlite3 *db, uint32_t cluster_size,
