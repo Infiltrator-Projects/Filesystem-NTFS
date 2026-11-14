@@ -569,13 +569,42 @@ static int read_record0(NtfsVolume *volume,NtfsRunVec *mft_runs,uint64_t *data_s
     for(size_t i=0;i<a->runs.count;++i)if(ntfs_runs_push(mft_runs,a->runs.items[i].lcn,a->runs.items[i].length,a->runs.items[i].sparse)!=0){ntfs_set_error(error,"MFT runlist overflow");ntfs_attributes_free(&attrs);free(raw);free(fixed);return -1;}
     *data_size=a->data_size;ntfs_attributes_free(&attrs);free(raw);free(fixed);return 0;
 }
-static int resident_volume_flags(const uint8_t *fixed,size_t record_size,uint16_t *flags,char **error){
-    NtfsAttributeVec attrs={0};if(ntfs_parse_attributes(fixed,record_size,&attrs,error)!=0)return -1;int result=-1;
-    for(size_t i=0;i<attrs.count;++i){NtfsAttribute *a=&attrs.items[i];if(a->type!=NTFS_ATTR_VOLUME_INFORMATION||a->nonresident)continue;uint32_t len=ntfs_u32(fixed,a->offset+16U);uint16_t off=ntfs_u16(fixed,a->offset+20U);if(len<12U||(uint32_t)off+len>a->length){ntfs_set_error(error,"invalid NTFS volume-information attribute");break;}*flags=ntfs_u16(fixed,a->offset+off+10U);result=0;break;}
+/* Locate the flags inside a complete resident $VOLUME_INFORMATION value.
+ * Use the same bounds checks for primary and mirrored records. */
+static int resident_volume_flags_offset(const uint8_t *fixed, size_t record_size,
+                                        size_t *flag_offset, char **error)
+{
+    NtfsAttributeVec attrs = {0};
+    if (ntfs_parse_attributes(fixed, record_size, &attrs, error) != 0) return -1;
+    int result = -1;
+    for (size_t i = 0; i < attrs.count; ++i) {
+        NtfsAttribute *a = &attrs.items[i];
+        if (a->type != NTFS_ATTR_VOLUME_INFORMATION || a->nonresident) continue;
+        uint32_t len = ntfs_u32(fixed, a->offset + 16U);
+        uint16_t off = ntfs_u16(fixed, a->offset + 20U);
+        if (off < 24U || len < 12U || (uint64_t)off + len > a->length ||
+            (uint64_t)a->offset + off + len > record_size) {
+            ntfs_set_error(error, "invalid NTFS volume-information attribute");
+            break;
+        }
+        *flag_offset = (size_t)a->offset + off + 10U;
+        result = 0;
+        break;
+    }
     if (result != 0 && error != NULL && *error == NULL)
         ntfs_set_error(error, "NTFS volume-information attribute was not found");
     ntfs_attributes_free(&attrs);
     return result;
+}
+
+static int resident_volume_flags(const uint8_t *fixed, size_t record_size,
+                                 uint16_t *flags, char **error)
+{
+    size_t offset;
+    if (resident_volume_flags_offset(fixed, record_size, &offset, error) != 0)
+        return -1;
+    *flags = ntfs_u16(fixed, offset);
+    return 0;
 }
 static int validate_flags(uint16_t flags,bool allow_dirty,char **error){uint16_t unknown=(uint16_t)(flags&~NTFS_VOLUME_ACCEPTED_MASK);if(unknown){ntfs_set_error(error,"unsupported NTFS volume flags are set (0x%04x)",flags);return -1;}uint16_t unsafe=(uint16_t)(flags&NTFS_VOLUME_UNSAFE_MASK);if(allow_dirty)unsafe=(uint16_t)(unsafe&~NTFS_VOLUME_DIRTY);if(unsafe){ntfs_set_error(error,"NTFS volume has an active unsafe maintenance state (0x%04x)",flags);return -1;}if((flags&NTFS_VOLUME_DIRTY)&&!allow_dirty){ntfs_set_error(error,"NTFS dirty flag is set; complete Windows filesystem checking first");return -1;}return 0;}
 
@@ -604,14 +633,75 @@ int ntfs_bitmap_bit(const NtfsLayout *layout,uint64_t cluster){if(cluster>=layou
 void ntfs_bitmap_set(NtfsLayout *layout,uint64_t cluster,bool used){if(cluster>=layout->bitmap_bytes*8U)return;uint8_t mask=(uint8_t)(1U<<(cluster&7U));if(used)layout->bitmap[cluster>>3U]|=mask;else layout->bitmap[cluster>>3U]&=(uint8_t)~mask;}
 int ntfs_write_bitmap(const NtfsVolume *volume,const NtfsLayout *layout,char **error){return ntfs_write_stream(volume,&layout->bitmap_runs,0,layout->bitmap,layout->bitmap_bytes,error);}
 
-int ntfs_set_volume_dirty(NtfsVolume *volume,NtfsLayout *layout,bool dirty,char **error){
-    uint8_t *raw=NULL,*fixed=NULL;if(ntfs_read_record(volume,&layout->mft_runs,3,&raw,&fixed,error)!=0)return -1;NtfsAttributeVec attrs={0};if(ntfs_parse_attributes(fixed,volume->record_size,&attrs,error)!=0){free(raw);free(fixed);return -1;}int result=-1;
-    for(size_t i=0;i<attrs.count;++i){NtfsAttribute *a=&attrs.items[i];if(a->type!=NTFS_ATTR_VOLUME_INFORMATION||a->nonresident)continue;uint16_t off=ntfs_u16(fixed,a->offset+20U);uint32_t len=ntfs_u32(fixed,a->offset+16U);if(len<12U||(uint32_t)off+len>a->length){ntfs_set_error(error,"invalid NTFS volume-information attribute");break;}size_t flag_off=(size_t)a->offset+off+10U;uint16_t flags=ntfs_u16(fixed,flag_off);if(!dirty&&validate_flags(flags,true,error)!=0)break;flags=dirty?(uint16_t)(flags|NTFS_VOLUME_DIRTY):(uint16_t)(flags&~NTFS_VOLUME_DIRTY);ntfs_put_u16(fixed,flag_off,flags);if(ntfs_prepare_fixups(fixed,volume->record_size,volume->bytes_per_sector,raw,error)!=0)break;if(ntfs_write_record(volume,&layout->mft_runs,3,raw,error)!=0)break;
-        uint64_t mirror_off=volume->mftmirr_lcn*volume->cluster_size+3U*volume->record_size;uint8_t *mirror_raw=ld_xmalloc(volume->record_size),*mirror_fixed=ld_xmalloc(volume->record_size);ssize_t got=ntfs_device_pread_full(volume,mirror_raw,volume->record_size,mirror_off);if(got<0||(size_t)got!=volume->record_size||ntfs_apply_fixups(mirror_raw,volume->record_size,volume->bytes_per_sector,mirror_fixed,error)!=0){free(mirror_raw);free(mirror_fixed);break;}NtfsAttributeVec ma={0};if(ntfs_parse_attributes(mirror_fixed,volume->record_size,&ma,error)!=0){free(mirror_raw);free(mirror_fixed);break;}bool found=false;for(size_t j=0;j<ma.count;++j){NtfsAttribute *m=&ma.items[j];if(m->type==NTFS_ATTR_VOLUME_INFORMATION&&!m->nonresident){uint16_t mo=ntfs_u16(mirror_fixed,m->offset+20U);size_t mf=(size_t)m->offset+mo+10U;uint16_t mv=ntfs_u16(mirror_fixed,mf);mv=dirty?(uint16_t)(mv|NTFS_VOLUME_DIRTY):(uint16_t)(mv&~NTFS_VOLUME_DIRTY);ntfs_put_u16(mirror_fixed,mf,mv);found=true;break;}}if(!found){ntfs_set_error(error,"NTFS $MFTMirr lacks $Volume record");ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}if(ntfs_prepare_fixups(mirror_fixed,volume->record_size,volume->bytes_per_sector,mirror_raw,error)!=0){ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);break;}ssize_t wrote=ntfs_device_pwrite_full(volume,mirror_raw,volume->record_size,mirror_off);ntfs_attributes_free(&ma);free(mirror_raw);free(mirror_fixed);if(wrote<0||(size_t)wrote!=volume->record_size){ntfs_set_error(error,"writing NTFS mirrored volume state failed");break;}if(ntfs_sync_volume(volume)!=0){ntfs_set_error(error,"syncing NTFS volume state failed: %s",strerror(errno));break;}result=0;break;}
-    if (result != 0 && error != NULL && *error == NULL)
-        ntfs_set_error(error, "NTFS volume-information attribute was not found");
-    ntfs_attributes_free(&attrs);
+int ntfs_set_volume_dirty(NtfsVolume *volume, NtfsLayout *layout, bool dirty, char **error)
+{
+    uint8_t *raw = NULL, *fixed = NULL, *mirror_raw = NULL, *mirror_fixed = NULL;
+    int result = -1;
+    size_t flag_off, mirror_flag_off;
+    uint64_t mirror_off, mirror_delta;
+    if (!volume || !layout || !volume->cluster_size || !volume->record_size) {
+        ntfs_set_error(error, "invalid NTFS volume state geometry");
+        return -1;
+    }
+    mirror_delta = 3ULL * volume->record_size;
+    if (volume->mftmirr_lcn > (UINT64_MAX - mirror_delta) / volume->cluster_size) {
+        ntfs_set_error(error, "NTFS mirror offset overflow");
+        return -1;
+    }
+    mirror_off = volume->mftmirr_lcn * volume->cluster_size + mirror_delta;
+    if (mirror_off > volume->volume_bytes ||
+        volume->record_size > volume->volume_bytes - mirror_off) {
+        ntfs_set_error(error, "NTFS mirrored volume record is outside the volume");
+        return -1;
+    }
+    if (ntfs_read_record(volume, &layout->mft_runs, 3, &raw, &fixed, error) != 0)
+        goto done;
+    mirror_raw = ld_xmalloc(volume->record_size);
+    mirror_fixed = ld_xmalloc(volume->record_size);
+    ssize_t got = ntfs_device_pread_full(volume, mirror_raw, volume->record_size, mirror_off);
+    if (got < 0 || (size_t)got != volume->record_size ||
+        memcmp(mirror_raw, "FILE", 4) != 0) {
+        ntfs_set_error(error, "reading NTFS mirrored volume record failed");
+        goto done;
+    }
+    if (ntfs_apply_fixups(mirror_raw, volume->record_size, volume->bytes_per_sector,
+                          mirror_fixed, error) != 0 ||
+        resident_volume_flags_offset(fixed, volume->record_size, &flag_off, error) != 0 ||
+        resident_volume_flags_offset(mirror_fixed, volume->record_size,
+                                     &mirror_flag_off, error) != 0)
+        goto done;
+    uint16_t flags = ntfs_u16(fixed, flag_off);
+    uint16_t mirror_flags = ntfs_u16(mirror_fixed, mirror_flag_off);
+    if (!dirty && (validate_flags(flags, true, error) != 0 ||
+                   validate_flags(mirror_flags, true, error) != 0)) goto done;
+    flags = dirty ? (uint16_t)(flags | NTFS_VOLUME_DIRTY) :
+                    (uint16_t)(flags & ~NTFS_VOLUME_DIRTY);
+    mirror_flags = dirty ? (uint16_t)(mirror_flags | NTFS_VOLUME_DIRTY) :
+                           (uint16_t)(mirror_flags & ~NTFS_VOLUME_DIRTY);
+    ntfs_put_u16(fixed, flag_off, flags);
+    ntfs_put_u16(mirror_fixed, mirror_flag_off, mirror_flags);
+    /* Validate and prepare both records before writing either one. An I/O
+     * failure between writes is still a transaction/recovery responsibility. */
+    if (ntfs_prepare_fixups(fixed, volume->record_size, volume->bytes_per_sector,
+                            raw, error) != 0 ||
+        ntfs_prepare_fixups(mirror_fixed, volume->record_size, volume->bytes_per_sector,
+                            mirror_raw, error) != 0 ||
+        ntfs_write_record(volume, &layout->mft_runs, 3, raw, error) != 0)
+        goto done;
+    ssize_t wrote = ntfs_device_pwrite_full(volume, mirror_raw, volume->record_size, mirror_off);
+    if (wrote < 0 || (size_t)wrote != volume->record_size) {
+        ntfs_set_error(error, "writing NTFS mirrored volume state failed");
+        goto done;
+    }
+    if (ntfs_sync_volume(volume) != 0) {
+        ntfs_set_error(error, "syncing NTFS volume state failed");
+        goto done;
+    }
+    result = 0;
+done:
     free(raw);
     free(fixed);
+    free(mirror_raw);
+    free(mirror_fixed);
     return result;
 }

@@ -137,6 +137,8 @@ static int check_metadata_writes(Image *image, const IfsFsHostRuntimeV2 *writer,
     NtfsVolume media = {.fd = -1};
     NtfsLayout layout = {0};
     char *error = NULL;
+    uint8_t *mirror_saved = NULL, *mirror_work = NULL, *mirror_fixed = NULL;
+    NtfsAttributeVec mirror_attrs = {0};
     int status = 1;
     CHECK(ntfs_open_host(reader, &media, &error) == 0);
     CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
@@ -150,6 +152,44 @@ static int check_metadata_writes(Image *image, const IfsFsHostRuntimeV2 *writer,
 
     CHECK(ntfs_open_host(writer, &media, &error) == 0);
     CHECK(ntfs_read_layout(&media, false, &layout, &error) == 0);
+    /* A damaged mirror must fail before either on-disk copy is changed. The
+     * image belongs to this test; setup writes bypass the host write counter. */
+    const uint64_t mirror_offset = media.mftmirr_lcn * media.cluster_size +
+                                   3ULL * media.record_size;
+    mirror_saved = malloc(media.record_size);
+    mirror_work = malloc(media.record_size);
+    mirror_fixed = malloc(media.record_size);
+    CHECK(mirror_saved && mirror_work && mirror_fixed);
+    CHECK(pread(image->fd, mirror_saved, media.record_size, (off_t)mirror_offset) ==
+          (ssize_t)media.record_size);
+    memcpy(mirror_work, mirror_saved, media.record_size);
+    mirror_work[6] = mirror_work[7] = 0; /* invalid update-sequence count */
+    CHECK(pwrite(image->fd, mirror_work, media.record_size, (off_t)mirror_offset) ==
+          (ssize_t)media.record_size);
+    CHECK(ntfs_set_volume_dirty(&media, &layout, true, &error) != 0 && error);
+    CHECK(image->writes == writes_before);
+    free(error); error = NULL;
+    CHECK(ntfs_apply_fixups(mirror_saved, media.record_size, media.bytes_per_sector,
+                            mirror_fixed, &error) == 0);
+    CHECK(ntfs_parse_attributes(mirror_fixed, media.record_size, &mirror_attrs, &error) == 0);
+    size_t volume_attr = 0;
+    for (size_t i = 0; i < mirror_attrs.count; ++i)
+        if (mirror_attrs.items[i].type == NTFS_ATTR_VOLUME_INFORMATION &&
+            !mirror_attrs.items[i].nonresident) {
+            volume_attr = mirror_attrs.items[i].offset;
+            break;
+        }
+    CHECK(volume_attr != 0);
+    ntfs_put_u16(mirror_fixed, volume_attr + 20U, 0xfff0U);
+    CHECK(ntfs_prepare_fixups(mirror_fixed, media.record_size, media.bytes_per_sector,
+                              mirror_work, &error) == 0);
+    CHECK(pwrite(image->fd, mirror_work, media.record_size, (off_t)mirror_offset) ==
+          (ssize_t)media.record_size);
+    CHECK(ntfs_set_volume_dirty(&media, &layout, true, &error) != 0 && error);
+    CHECK(image->writes == writes_before);
+    free(error); error = NULL;
+    CHECK(pwrite(image->fd, mirror_saved, media.record_size, (off_t)mirror_offset) ==
+          (ssize_t)media.record_size);
     /* Exercise the partial-sector bitmap path without changing allocation. */
     const uint64_t bitmap_offset = layout.bitmap_runs.items[0].lcn * media.cluster_size;
     uint8_t before[SECTOR], after[SECTOR];
@@ -179,6 +219,10 @@ static int check_metadata_writes(Image *image, const IfsFsHostRuntimeV2 *writer,
 done:
     if (error) fprintf(stderr, "%s\n", error);
     free(error);
+    ntfs_attributes_free(&mirror_attrs);
+    free(mirror_saved);
+    free(mirror_work);
+    free(mirror_fixed);
     ntfs_layout_free(&layout);
     ntfs_close_volume(&media);
     return status;
