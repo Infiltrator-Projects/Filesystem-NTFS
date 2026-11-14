@@ -387,7 +387,10 @@ int ntfs_prepare_workspace_map(sqlite3 *db, uint64_t workspace_start,
                  "old INTEGER PRIMARY KEY,target INTEGER NOT NULL UNIQUE,"
                  "slot INTEGER NOT NULL UNIQUE,sha BLOB);"
                  "BEGIN IMMEDIATE;DELETE FROM workspace",
-                 error) != 0) return -1;
+                 error) != 0) {
+        (void)sqlite3_exec(db, "ROLLBACK", NULL, NULL, NULL);
+        return -1;
+    }
     sqlite3_stmt *select = NULL, *insert = NULL;
     if (sqlite3_prepare_v2(db,
             "SELECT old,target FROM blocks WHERE old<>target ORDER BY old", -1,

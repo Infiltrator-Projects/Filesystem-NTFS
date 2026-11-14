@@ -88,6 +88,13 @@ static int check_workspace_map(void)
     CHECK(sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_int64(statement, 0) == 101);
     CHECK(sqlite3_step(statement) == SQLITE_DONE);
     sqlite3_finalize(statement); statement = NULL;
+    CHECK(sqlite3_exec(db, "CREATE TRIGGER deny_workspace_delete BEFORE DELETE ON workspace "
+                           "BEGIN SELECT RAISE(ABORT,'injected delete failure'); END;",
+                       NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_prepare_workspace_map(db, 100u, 2u, &error) != 0 && error);
+    CHECK(sqlite3_get_autocommit(db) != 0);
+    free(error); error = NULL;
+    CHECK(sqlite3_exec(db, "DROP TRIGGER deny_workspace_delete", NULL, NULL, NULL) == SQLITE_OK);
     CHECK(ntfs_prepare_workspace_map(db, (uint64_t)INT64_MAX, 2u, &error) != 0 && error);
     free(error); error = NULL;
     CHECK(sqlite3_exec(db, "UPDATE blocks SET old=-1 WHERE old=1", NULL, NULL, NULL) == SQLITE_OK);
