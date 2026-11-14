@@ -263,6 +263,7 @@ static int check_map(const char *path, const char *payload)
     int source = open(payload, O_RDONLY | O_NOFOLLOW);
     int status = 1;
     void *mounted = NULL;
+    IfsFsHostRuntimeV2 *short_host = NULL;
     NtfsVolume media = {.fd = -1};
     NtfsLayout layout = {0};
     NtfsCatalogue catalogue = {0};
@@ -282,6 +283,17 @@ static int check_map(const char *path, const char *payload)
         .read_at = read_at, .allocate = allocate, .release = release,
     };
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
+    /* An earlier V2 host ends immediately before the optional entropy
+     * extension. Allocate only that many bytes so ASan detects an overread. */
+    short_host = malloc(IFS_FS_HOST_V2_BASE_BYTES);
+    CHECK(short_host);
+    memcpy(short_host, &host, IFS_FS_HOST_V2_BASE_BYTES);
+    short_host->structure_bytes = IFS_FS_HOST_V2_BASE_BYTES;
+    CHECK(core->mount(short_host, &mounted, &info) == IFS_FS_OK && mounted);
+    CHECK(core->unmount(mounted) == IFS_FS_OK);
+    mounted = NULL;
+    free(short_host);
+    short_host = NULL;
     CHECK(core->mount(&host, &mounted, &info) == IFS_FS_OK && mounted);
     IfsFsExtentV2 extent = {0};
     NtfsRun runs[5];
@@ -376,6 +388,7 @@ done:
     ntfs_layout_free(&layout);
     ntfs_close_volume(&media);
     if (mounted && core->unmount(mounted) != IFS_FS_OK) status = 1;
+    free(short_host);
     if (source >= 0) close(source);
     if (image.fd >= 0) close(image.fd);
     return status;

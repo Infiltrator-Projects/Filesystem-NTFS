@@ -91,7 +91,13 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
     MountedNtfs *volume = host->allocate(host->context, sizeof(*volume));
     if (!volume) return IFS_FS_NO_MEMORY;
     memset(volume, 0, sizeof(*volume));
-    volume->host = *host;
+    /* V2 is size-versioned: older callers need not allocate fields added to
+     * a later host structure. Copy only their supplied prefix and clamp the
+     * saved size to the storage actually owned by this module. */
+    const size_t host_bytes = host->structure_bytes < sizeof(volume->host) ?
+        host->structure_bytes : sizeof(volume->host);
+    memcpy(&volume->host, host, host_bytes);
+    volume->host.structure_bytes = (uint32_t)host_bytes;
     volume->media.fd = -1;
     char *error = NULL;
     if (ntfs_open_host(&volume->host, &volume->media, &error) != 0 ||
