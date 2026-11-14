@@ -285,7 +285,8 @@ static int check_map(const char *path, const char *payload)
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
     /* An earlier V2 host ends immediately before the optional entropy
      * extension. Allocate only that many bytes so ASan detects an overread. */
-    short_host = malloc(IFS_FS_HOST_V2_BASE_BYTES);
+    volatile size_t short_bytes = IFS_FS_HOST_V2_BASE_BYTES;
+    short_host = malloc(short_bytes);
     CHECK(short_host);
     memcpy(short_host, &host, IFS_FS_HOST_V2_BASE_BYTES);
     short_host->structure_bytes = IFS_FS_HOST_V2_BASE_BYTES;
