@@ -18,19 +18,22 @@ static const char *fixture_path;
 typedef struct {
     int fd;
     unsigned writes, flushes;
+    uint32_t sector, maximum;
     bool fail_write, fail_flush, cancelled;
 } HostFixture;
 static int host_read(void *context, uint64_t offset, void *buffer, uint32_t bytes)
 {
     HostFixture *h = context;
-    return offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
+    return h->sector && !(offset % h->sector) && !(bytes % h->sector) &&
+        bytes <= h->maximum && offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
         pread(h->fd, buffer, bytes, (off_t)offset) == (ssize_t)bytes ? 0 : -1;
 }
 static int host_write(void *context, uint64_t offset, const void *buffer, uint32_t bytes)
 {
     HostFixture *h = context;
     ++h->writes;
-    return !h->fail_write && offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
+    return !h->fail_write && h->sector && !(offset % h->sector) && !(bytes % h->sector) &&
+        bytes <= h->maximum && offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
         pwrite(h->fd, buffer, bytes, (off_t)offset) == (ssize_t)bytes ? 0 : -1;
 }
 static int host_flush(void *context)
@@ -115,7 +118,7 @@ int main(void)
 
     /* Exercise the same workspace stages through the actual V2 host lease.
      * No raw device path is passed into these operations. */
-    HostFixture fixture = {.fd = fd};
+    HostFixture fixture = {.fd = fd, .sector = SECTOR, .maximum = SECTOR};
     IfsFsHostRuntimeV2 host = {
         .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
         .capabilities = IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE | IFS_FS_HOST_CANCEL,
@@ -143,6 +146,21 @@ int main(void)
     CHECK(!memcmp(observed + SECTOR, original + SECTOR, SECTOR));
     CHECK(fixture.writes >= 3 && fixture.flushes >= 3);
     memcpy(original, observed, sizeof(original));
+
+    /* A 512-byte cluster on a 4 KiB-sector host requires bounded
+     * read/modify/write without altering neighbouring clusters. */
+    fixture.sector = fixture.maximum = 4096u;
+    host.logical_sector_bytes = host.physical_sector_bytes = host.maximum_transfer_bytes = 4096u;
+    CHECK(ntfs_stage_host_workspace(&host, db, SECTOR, &error) == 0);
+    CHECK(ntfs_verify_host_workspace(&host, db, SECTOR, &error) == 0);
+    CHECK(ntfs_place_host_workspace(&host, db, SECTOR, false, &error) == 0);
+    CHECK(pread(fd, observed, sizeof(observed), 0) == sizeof(observed));
+    CHECK(!memcmp(observed + 3 * SECTOR, original + SECTOR, SECTOR));
+    CHECK(!memcmp(observed + 4 * SECTOR, original + 4 * SECTOR, 2 * SECTOR));
+    CHECK(ntfs_restore_host_workspace(&host, db, SECTOR, &error) == 0);
+    fixture.sector = fixture.maximum = SECTOR;
+    host.logical_sector_bytes = host.physical_sector_bytes = host.maximum_transfer_bytes = SECTOR;
+    CHECK(pread(fd, original, sizeof(original), 0) == sizeof(original));
 
     /* A failed durable flush or write must not commit workspace digests. */
     CHECK(sqlite3_exec(db, "UPDATE workspace SET sha=NULL", NULL, NULL, NULL) == SQLITE_OK);
