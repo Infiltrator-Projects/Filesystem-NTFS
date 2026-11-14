@@ -63,6 +63,59 @@ static void release(void *context, void *data)
     free(data);
 }
 
+static void failing_plan_value(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+    if (argc != 1 || sqlite3_value_int64(argv[0]) == 4)
+        sqlite3_result_error(context, "injected plan read failure", -1);
+    else
+        sqlite3_result_int64(context, sqlite3_value_int64(argv[0]));
+}
+
+static int check_workspace_map(void)
+{
+    sqlite3 *db = NULL;
+    sqlite3_stmt *statement = NULL;
+    char *error = NULL;
+    int status = 1;
+    CHECK(sqlite3_open(":memory:", &db) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "CREATE TABLE blocks(old INTEGER PRIMARY KEY,target INTEGER);"
+                           "INSERT INTO blocks VALUES(1,2),(3,4)",
+                       NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_prepare_workspace_map(db, 100u, 2u, &error) == 0);
+    CHECK(sqlite3_prepare_v2(db, "SELECT slot FROM workspace ORDER BY old", -1,
+                             &statement, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_int64(statement, 0) == 100);
+    CHECK(sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_int64(statement, 0) == 101);
+    CHECK(sqlite3_step(statement) == SQLITE_DONE);
+    sqlite3_finalize(statement); statement = NULL;
+    CHECK(ntfs_prepare_workspace_map(db, (uint64_t)INT64_MAX, 2u, &error) != 0 && error);
+    free(error); error = NULL;
+    CHECK(sqlite3_exec(db, "UPDATE blocks SET old=-1 WHERE old=1", NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_prepare_workspace_map(db, 100u, 2u, &error) != 0 && error);
+    free(error); error = NULL;
+    CHECK(sqlite3_create_function(db, "fail_plan", 1, SQLITE_UTF8, NULL,
+                                  failing_plan_value, NULL, NULL) == SQLITE_OK);
+    CHECK(sqlite3_exec(db, "DROP TABLE blocks;"
+                           "CREATE TABLE raw_blocks(old INTEGER PRIMARY KEY,target INTEGER);"
+                           "INSERT INTO raw_blocks VALUES(1,2),(3,4);"
+                           "CREATE VIEW blocks AS SELECT old,fail_plan(target) AS target FROM raw_blocks;",
+                       NULL, NULL, NULL) == SQLITE_OK);
+    CHECK(ntfs_prepare_workspace_map(db, 100u, 2u, &error) != 0 && error);
+    CHECK(strstr(error, "reading NTFS terminal workspace map") != NULL);
+    free(error); error = NULL;
+    /* Failed replacement rolled back to the previously complete workspace. */
+    CHECK(sqlite3_prepare_v2(db, "SELECT count(*) FROM workspace", -1,
+                             &statement, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(statement) == SQLITE_ROW && sqlite3_column_int(statement, 0) == 2);
+    status = 0;
+done:
+    if (error) fprintf(stderr, "%s\n", error);
+    free(error);
+    sqlite3_finalize(statement);
+    sqlite3_close(db);
+    return status;
+}
+
 static int invalid_signatures(Image *image)
 {
     uint8_t primary[SECTOR], backup[SECTOR], zero[SECTOR] = {0};
@@ -325,6 +378,7 @@ int main(int argc, char **argv)
 {
     if (argc == 3) return check_map(argv[1], argv[2]);
     if (argc != 2) return 2;
+    if (check_workspace_map() != 0) return 1;
     Image image = {.fd = open(argv[1], O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600)};
     if (image.fd < 0) return 2;
     int status = 1;

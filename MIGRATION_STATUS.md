@@ -12,3 +12,6 @@ disposable-image tests cover rejection before writes and failed durability.
 This primitive alone does not qualify V2 relocation or crash recovery; those
 operations remain unavailable through the Common V2 defragmentation group
 until their complete transaction and recovery paths have been migrated.
+Workspace relocation also rejects out-of-bounds cluster addresses, incomplete
+database reads and empty relocation sets; disposable-image tests exercise
+staging, verification, placement, recovery and these failure cases.

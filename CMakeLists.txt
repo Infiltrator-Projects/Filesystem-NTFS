@@ -79,6 +79,19 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
     "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}" "${NTFS_COPY_TOOL}")
+ # Test relocation bounds and recovery failures on a temporary regular file.
+ # Only the workspace code is linked; target access is supplied by the fixture.
+ add_executable(ntfs-workspace-safety-test tests/test_ntfs_workspace_safety.c native/ntfs_plan.c)
+ target_compile_definitions(ntfs-workspace-safety-test PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
+ target_compile_options(ntfs-workspace-safety-test PRIVATE -Wall -Wextra -Wpedantic -Werror
+   -ffunction-sections -fdata-sections)
+ target_link_options(ntfs-workspace-safety-test PRIVATE -Wl,--gc-sections)
+ target_include_directories(ntfs-workspace-safety-test PRIVATE
+   "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
+   "${CMAKE_CURRENT_SOURCE_DIR}/include")
+ target_link_libraries(ntfs-workspace-safety-test PRIVATE InfiltratrCommon::Common
+   SQLite::SQLite3 OpenSSL::Crypto)
+ add_test(NAME ntfs-workspace-safety COMMAND ntfs-workspace-safety-test)
  # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
  add_executable(ntfs-legacy-compat-test tests/test_module.c)
  target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")

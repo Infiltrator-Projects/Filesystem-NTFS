@@ -377,8 +377,8 @@ static int workspace_digest(const uint8_t *data, size_t length,
 
 int ntfs_prepare_workspace_map(sqlite3 *db, uint64_t workspace_start,
                                uint64_t workspace_clusters, char **error) {
-    if (workspace_clusters == 0 ||
-        workspace_start > UINT64_MAX - workspace_clusters) {
+    if (!db || workspace_clusters == 0 || workspace_start > (uint64_t)INT64_MAX ||
+        workspace_clusters - 1u > (uint64_t)INT64_MAX - workspace_start) {
         ntfs_set_error(error, "NTFS terminal workspace geometry is invalid");
         return -1;
     }
@@ -399,13 +399,20 @@ int ntfs_prepare_workspace_map(sqlite3 *db, uint64_t workspace_start,
         goto fail;
     }
     uint64_t index = 0;
-    while (sqlite3_step(select) == SQLITE_ROW) {
+    int select_state;
+    while ((select_state = sqlite3_step(select)) == SQLITE_ROW) {
         if (index >= workspace_clusters) {
             ntfs_set_error(error, "NTFS terminal workspace is smaller than the relocation set");
             goto fail;
         }
-        uint64_t old_cluster = (uint64_t)sqlite3_column_int64(select, 0);
-        uint64_t target_cluster = (uint64_t)sqlite3_column_int64(select, 1);
+        sqlite3_int64 old_value = sqlite3_column_int64(select, 0);
+        sqlite3_int64 target_value = sqlite3_column_int64(select, 1);
+        if (old_value < 0 || target_value < 0) {
+            ntfs_set_error(error, "NTFS relocation map contains a negative cluster");
+            goto fail;
+        }
+        uint64_t old_cluster = (uint64_t)old_value;
+        uint64_t target_cluster = (uint64_t)target_value;
         uint64_t slot = workspace_start + index;
         sqlite3_reset(insert);
         sqlite3_clear_bindings(insert);
@@ -417,6 +424,10 @@ int ntfs_prepare_workspace_map(sqlite3 *db, uint64_t workspace_start,
             goto fail;
         }
         index++;
+    }
+    if (select_state != SQLITE_DONE) {
+        sql_error(db, error, "reading NTFS terminal workspace map");
+        goto fail;
     }
     if (index != workspace_clusters) {
         ntfs_set_error(error,
@@ -436,10 +447,27 @@ fail:
     return -1;
 }
 
+/* Validate before multiplication: corrupted recovery metadata must never
+ * wrap a cluster address into another part of the physical device. */
+static int workspace_offset(uint64_t cluster, uint32_t cluster_size,
+                            uint64_t physical_bytes, uint64_t *offset)
+{
+    if (!offset || !cluster_size || physical_bytes < cluster_size ||
+        cluster > (physical_bytes - cluster_size) / cluster_size ||
+        cluster > ((uint64_t)INT64_MAX - (cluster_size - 1u)) / cluster_size)
+        return -1;
+    *offset = cluster * (uint64_t)cluster_size;
+    return 0;
+}
+
 static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster_size,
                                const char *target_identity, uint64_t physical_bytes,
                                const char *query, bool stop_aware,
                                bool record_digest, char **error) {
+    if (!db || !query || !cluster_size || physical_bytes < cluster_size) {
+        ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
+        return -1;
+    }
     int fd = ld_device_open_verified_fd(device, true, target_identity,
                                         physical_bytes);
     if (fd < 0) {
@@ -472,12 +500,17 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
     uint8_t *buffer = ld_xmalloc(cluster_size);
     uint64_t copied = 0;
     int result = 0;
-    while (sqlite3_step(rows) == SQLITE_ROW) {
+    int row_state;
+    while ((row_state = sqlite3_step(rows)) == SQLITE_ROW) {
         if (stop_aware && ld_stop_requested()) { result = -2; break; }
         uint64_t source_cluster = (uint64_t)sqlite3_column_int64(rows, 0);
         uint64_t target_cluster = (uint64_t)sqlite3_column_int64(rows, 1);
-        uint64_t source_offset = source_cluster * (uint64_t)cluster_size;
-        uint64_t target_offset = target_cluster * (uint64_t)cluster_size;
+        uint64_t source_offset, target_offset;
+        if (workspace_offset(source_cluster, cluster_size, physical_bytes, &source_offset) != 0 ||
+            workspace_offset(target_cluster, cluster_size, physical_bytes, &target_offset) != 0) {
+            ntfs_set_error(error, "NTFS terminal-workspace cluster is outside the target");
+            result = -1; break;
+        }
         ssize_t got = ld_pread_full(fd, buffer, cluster_size, source_offset);
         if (got < 0 || (size_t)got != cluster_size) {
             ntfs_set_error(error, "short read during NTFS terminal-workspace relocation");
@@ -503,6 +536,14 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
             result = -1; break;
         }
         copied++;
+    }
+    if (result == 0 && row_state != SQLITE_DONE) {
+        sql_error(db, error, "reading NTFS terminal workspace rows");
+        result = -1;
+    }
+    if (result == 0 && copied == 0) {
+        ntfs_set_error(error, "NTFS terminal workspace has no relocation rows");
+        result = -1;
     }
     if (result == 0 && fsync(fd) != 0) {
         ntfs_set_error(error, "syncing NTFS terminal-workspace relocation failed: %s",
@@ -554,6 +595,10 @@ int ntfs_restore_workspace(const char *device, sqlite3 *db, uint32_t cluster_siz
 int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size,
                           const char *target_identity, uint64_t physical_bytes,
                           char **error) {
+    if (!db || !cluster_size || physical_bytes < cluster_size) {
+        ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
+        return -1;
+    }
     int fd = ld_device_open_verified_fd(device, false, target_identity,
                                         physical_bytes);
     if (fd < 0) {
@@ -570,7 +615,8 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
     uint8_t *buffer = ld_xmalloc(cluster_size);
     uint64_t verified = 0;
     int result = 0;
-    while (sqlite3_step(rows) == SQLITE_ROW) {
+    int row_state;
+    while ((row_state = sqlite3_step(rows)) == SQLITE_ROW) {
         uint64_t slot = (uint64_t)sqlite3_column_int64(rows, 0);
         const void *expected = sqlite3_column_blob(rows, 1);
         int expected_bytes = sqlite3_column_bytes(rows, 1);
@@ -578,8 +624,12 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
             ntfs_set_error(error, "NTFS terminal workspace is not fully checksummed");
             result = -1; break;
         }
-        ssize_t got = ld_pread_full(fd, buffer, cluster_size,
-                                    slot * (uint64_t)cluster_size);
+        uint64_t offset;
+        if (workspace_offset(slot, cluster_size, physical_bytes, &offset) != 0) {
+            ntfs_set_error(error, "NTFS terminal-workspace slot is outside the target");
+            result = -1; break;
+        }
+        ssize_t got = ld_pread_full(fd, buffer, cluster_size, offset);
         uint8_t actual[SHA256_DIGEST_LENGTH];
         if (got < 0 || (size_t)got != cluster_size ||
             workspace_digest(buffer, cluster_size, actual, error) != 0) {
@@ -593,6 +643,10 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
             result = -1; break;
         }
         verified++;
+    }
+    if (result == 0 && row_state != SQLITE_DONE) {
+        sql_error(db, error, "reading NTFS workspace verification rows");
+        result = -1;
     }
     sqlite3_finalize(rows);
     free(buffer);
