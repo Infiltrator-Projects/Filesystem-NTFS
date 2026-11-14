@@ -463,41 +463,58 @@ static int workspace_offset(uint64_t cluster, uint32_t cluster_size,
     return 0;
 }
 
-static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster_size,
-                               const char *target_identity, uint64_t physical_bytes,
+typedef struct {
+    int fd;
+    const IfsFsHostRuntimeV2 *host;
+} NtfsWorkspaceIo;
+
+static int workspace_read(const NtfsWorkspaceIo *io, void *buffer,
+                          uint32_t bytes, uint64_t offset)
+{
+    if (io->host)
+        return ifs_fs_host_read_bytes_v2(io->host, offset, buffer, bytes) == IFS_FS_OK ? 0 : -1;
+    return ld_pread_full(io->fd, buffer, bytes, offset) == (ssize_t)bytes ? 0 : -1;
+}
+static int workspace_write(const NtfsWorkspaceIo *io, const void *buffer,
+                           uint32_t bytes, uint64_t offset)
+{
+    if (io->host)
+        return ifs_fs_host_write_bytes_v2(io->host, offset, buffer, bytes) == IFS_FS_OK ? 0 : -1;
+    return ld_pwrite_full(io->fd, buffer, bytes, offset) == (ssize_t)bytes ? 0 : -1;
+}
+static int workspace_flush(const NtfsWorkspaceIo *io)
+{
+    return io->host ? io->host->flush(io->host->context) : fsync(io->fd);
+}
+static int workspace_cancelled(const NtfsWorkspaceIo *io)
+{
+    return io->host ? (io->host->cancelled && io->host->cancelled(io->host->context)) :
+        ld_stop_requested();
+}
+
+/* The caller owns either the legacy fd lock or the V2 host lease for this
+ * entire operation. Journal and transaction sequencing remains unchanged. */
+static int workspace_copy_rows_io(const NtfsWorkspaceIo *io, sqlite3 *db,
+                               uint32_t cluster_size, uint64_t physical_bytes,
                                const char *query, bool stop_aware,
                                bool record_digest, char **error) {
     if (!db || !query || !cluster_size || physical_bytes < cluster_size) {
         ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
         return -1;
     }
-    int fd = ld_device_open_verified_fd(device, true, target_identity,
-                                        physical_bytes);
-    if (fd < 0) {
-        ntfs_set_error(error, "cannot open NTFS source for terminal-workspace I/O: %s",
-                       strerror(errno));
-        return -1;
-    }
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
-        ntfs_set_error(error, "cannot lock NTFS source for terminal-workspace I/O: %s",
-                       strerror(errno));
-        close(fd);
-        return -1;
-    }
     sqlite3_stmt *rows = NULL, *update = NULL;
     if (sqlite3_prepare_v2(db, query, -1, &rows, NULL) != SQLITE_OK) {
-        close(fd);
         return sql_error(db, error, "reading NTFS terminal workspace map");
     }
     if (record_digest) {
         if (sql_exec(db, "BEGIN IMMEDIATE", error) != 0) {
-            sqlite3_finalize(rows); close(fd); return -1;
+            sqlite3_finalize(rows); return -1;
         }
         if (sqlite3_prepare_v2(db, "UPDATE workspace SET sha=? WHERE old=?", -1,
                               &update, NULL) != SQLITE_OK) {
             sql_error(db, error, "preparing NTFS workspace digest update");
             (void)sqlite3_exec(db, "ROLLBACK", NULL, NULL, NULL);
-            sqlite3_finalize(rows); close(fd); return -1;
+            sqlite3_finalize(rows); return -1;
         }
     }
     uint8_t *buffer = ld_xmalloc(cluster_size);
@@ -505,7 +522,7 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
     int result = 0;
     int row_state;
     while ((row_state = sqlite3_step(rows)) == SQLITE_ROW) {
-        if (stop_aware && ld_stop_requested()) { result = -2; break; }
+        if (stop_aware && workspace_cancelled(io)) { result = -2; break; }
         uint64_t source_cluster = (uint64_t)sqlite3_column_int64(rows, 0);
         uint64_t target_cluster = (uint64_t)sqlite3_column_int64(rows, 1);
         uint64_t source_offset, target_offset;
@@ -514,8 +531,7 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
             ntfs_set_error(error, "NTFS terminal-workspace cluster is outside the target");
             result = -1; break;
         }
-        ssize_t got = ld_pread_full(fd, buffer, cluster_size, source_offset);
-        if (got < 0 || (size_t)got != cluster_size) {
+        if (workspace_read(io, buffer, cluster_size, source_offset) != 0) {
             ntfs_set_error(error, "short read during NTFS terminal-workspace relocation");
             result = -1; break;
         }
@@ -533,8 +549,7 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
                 result = -1; break;
             }
         }
-        ssize_t wrote = ld_pwrite_full(fd, buffer, cluster_size, target_offset);
-        if (wrote < 0 || (size_t)wrote != cluster_size) {
+        if (workspace_write(io, buffer, cluster_size, target_offset) != 0) {
             ntfs_set_error(error, "short write during NTFS terminal-workspace relocation");
             result = -1; break;
         }
@@ -548,9 +563,8 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
         ntfs_set_error(error, "NTFS terminal workspace has no relocation rows");
         result = -1;
     }
-    if (result == 0 && fsync(fd) != 0) {
-        ntfs_set_error(error, "syncing NTFS terminal-workspace relocation failed: %s",
-                       strerror(errno));
+    if (result == 0 && workspace_flush(io) != 0) {
+        ntfs_set_error(error, "syncing NTFS terminal-workspace relocation failed");
         result = -1;
     }
     if (record_digest) {
@@ -563,8 +577,33 @@ static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster
     sqlite3_finalize(update);
     sqlite3_finalize(rows);
     free(buffer);
-    close(fd);
     (void)copied;
+    return result;
+}
+
+static int workspace_copy_rows(const char *device, sqlite3 *db, uint32_t cluster_size,
+                               const char *target_identity, uint64_t physical_bytes,
+                               const char *query, bool stop_aware,
+                               bool record_digest, char **error)
+{
+    if (!db || !query || !cluster_size || physical_bytes < cluster_size) {
+        ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
+        return -1;
+    }
+    int fd = ld_device_open_verified_fd(device, true, target_identity, physical_bytes);
+    if (fd < 0) {
+        ntfs_set_error(error, "cannot open NTFS source for terminal-workspace I/O: %s", strerror(errno));
+        return -1;
+    }
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        ntfs_set_error(error, "cannot lock NTFS source for terminal-workspace I/O: %s", strerror(errno));
+        close(fd);
+        return -1;
+    }
+    const NtfsWorkspaceIo io = {.fd = fd, .host = NULL};
+    const int result = workspace_copy_rows_io(&io, db, cluster_size, physical_bytes,
+                                               query, stop_aware, record_digest, error);
+    close(fd);
     return result;
 }
 
@@ -595,24 +634,16 @@ int ntfs_restore_workspace(const char *device, sqlite3 *db, uint32_t cluster_siz
                                false, false, error);
 }
 
-int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size,
-                          const char *target_identity, uint64_t physical_bytes,
-                          char **error) {
+static int workspace_verify_io(const NtfsWorkspaceIo *io, sqlite3 *db,
+                               uint32_t cluster_size, uint64_t physical_bytes,
+                               char **error) {
     if (!db || !cluster_size || physical_bytes < cluster_size) {
         ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
-        return -1;
-    }
-    int fd = ld_device_open_verified_fd(device, false, target_identity,
-                                        physical_bytes);
-    if (fd < 0) {
-        ntfs_set_error(error, "cannot open NTFS source to verify terminal workspace: %s",
-                       strerror(errno));
         return -1;
     }
     sqlite3_stmt *rows = NULL;
     if (sqlite3_prepare_v2(db, "SELECT slot,sha FROM workspace ORDER BY old", -1,
                           &rows, NULL) != SQLITE_OK) {
-        close(fd);
         return sql_error(db, error, "reading NTFS workspace verification map");
     }
     uint8_t *buffer = ld_xmalloc(cluster_size);
@@ -632,9 +663,8 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
             ntfs_set_error(error, "NTFS terminal-workspace slot is outside the target");
             result = -1; break;
         }
-        ssize_t got = ld_pread_full(fd, buffer, cluster_size, offset);
         uint8_t actual[SHA256_DIGEST_LENGTH];
-        if (got < 0 || (size_t)got != cluster_size ||
+        if (workspace_read(io, buffer, cluster_size, offset) != 0 ||
             workspace_digest(buffer, cluster_size, actual, error) != 0) {
             if (error != NULL && *error == NULL)
                 ntfs_set_error(error, "short read while verifying NTFS terminal workspace");
@@ -653,12 +683,78 @@ int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size
     }
     sqlite3_finalize(rows);
     free(buffer);
-    close(fd);
     if (result == 0 && verified == 0) {
         ntfs_set_error(error, "NTFS terminal workspace verification found no staged clusters");
         result = -1;
     }
     return result;
+}
+
+int ntfs_verify_workspace(const char *device, sqlite3 *db, uint32_t cluster_size,
+                          const char *target_identity, uint64_t physical_bytes,
+                          char **error)
+{
+    if (!db || !cluster_size || physical_bytes < cluster_size) {
+        ntfs_set_error(error, "NTFS terminal-workspace geometry is invalid");
+        return -1;
+    }
+    int fd = ld_device_open_verified_fd(device, false, target_identity, physical_bytes);
+    if (fd < 0) {
+        ntfs_set_error(error, "cannot open NTFS source to verify terminal workspace: %s", strerror(errno));
+        return -1;
+    }
+    const NtfsWorkspaceIo io = {.fd = fd, .host = NULL};
+    const int result = workspace_verify_io(&io, db, cluster_size, physical_bytes, error);
+    close(fd);
+    return result;
+}
+
+static int workspace_host_lease(const IfsFsHostRuntimeV2 *host, char **error)
+{
+    if (!ifs_fs_host_v2_valid(host) || (host->capabilities & IFS_FS_HOST_READ_ONLY) ||
+        (host->capabilities & (IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE)) !=
+            (IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE)) {
+        ntfs_set_error(error, "NTFS workspace requires an exclusive durable V2 lease");
+        return -1;
+    }
+    return 0;
+}
+
+/* Internal building blocks for the V2 migration. They do not advertise
+ * defragmentation until the complete durable journal/recovery path exists. */
+int ntfs_stage_host_workspace(const IfsFsHostRuntimeV2 *host, sqlite3 *db,
+                              uint32_t cluster_size, char **error)
+{
+    if (workspace_host_lease(host, error)) return -1;
+    const NtfsWorkspaceIo io = {.fd = -1, .host = host};
+    return workspace_copy_rows_io(&io, db, cluster_size, host->volume_bytes,
+                                  "SELECT old,slot FROM workspace ORDER BY old",
+                                  true, true, error);
+}
+int ntfs_place_host_workspace(const IfsFsHostRuntimeV2 *host, sqlite3 *db,
+                              uint32_t cluster_size, bool stop_aware, char **error)
+{
+    if (workspace_host_lease(host, error)) return -1;
+    const NtfsWorkspaceIo io = {.fd = -1, .host = host};
+    return workspace_copy_rows_io(&io, db, cluster_size, host->volume_bytes,
+                                  "SELECT slot,target FROM workspace ORDER BY old",
+                                  stop_aware, false, error);
+}
+int ntfs_restore_host_workspace(const IfsFsHostRuntimeV2 *host, sqlite3 *db,
+                                uint32_t cluster_size, char **error)
+{
+    if (workspace_host_lease(host, error)) return -1;
+    const NtfsWorkspaceIo io = {.fd = -1, .host = host};
+    return workspace_copy_rows_io(&io, db, cluster_size, host->volume_bytes,
+                                  "SELECT slot,old FROM workspace ORDER BY old",
+                                  false, false, error);
+}
+int ntfs_verify_host_workspace(const IfsFsHostRuntimeV2 *host, sqlite3 *db,
+                               uint32_t cluster_size, char **error)
+{
+    if (workspace_host_lease(host, error)) return -1;
+    const NtfsWorkspaceIo io = {.fd = -1, .host = host};
+    return workspace_verify_io(&io, db, cluster_size, host->volume_bytes, error);
 }
 
 static NtfsStream *find_stream(NtfsCatalogue *catalogue,uint64_t record,uint32_t attr){for(size_t i=0;i<catalogue->count;++i)if(catalogue->items[i].record_number==record&&catalogue->items[i].attribute_offset==attr)return &catalogue->items[i];return NULL;}

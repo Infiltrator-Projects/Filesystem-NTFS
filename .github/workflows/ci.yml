@@ -20,7 +20,8 @@ jobs:
             -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address \
             -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address
           cmake --build build-asan --parallel 2
-          ASAN_OPTIONS=detect_leaks=0 ctest --test-dir build-asan -R '^ntfs-native-v2-format$' --output-on-failure
+          ASAN_OPTIONS=detect_leaks=0 ctest --test-dir build-asan \
+            -R '^ntfs-(native-v2-format|workspace-safety)$' --output-on-failure
       - run: |
           test -f build/NTFS.so
           nm -D --defined-only build/NTFS.so | grep -F infiltrator_filesystem_api_v2

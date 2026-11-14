@@ -15,6 +15,33 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "workspace test line %d: %s\n", __LINE__, #x); goto done; } } while (0)
 enum { SECTOR = 512, IMAGE_SIZE = 8 * SECTOR };
 static const char *fixture_path;
+typedef struct {
+    int fd;
+    unsigned writes, flushes;
+    bool fail_write, fail_flush, cancelled;
+} HostFixture;
+static int host_read(void *context, uint64_t offset, void *buffer, uint32_t bytes)
+{
+    HostFixture *h = context;
+    return offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
+        pread(h->fd, buffer, bytes, (off_t)offset) == (ssize_t)bytes ? 0 : -1;
+}
+static int host_write(void *context, uint64_t offset, const void *buffer, uint32_t bytes)
+{
+    HostFixture *h = context;
+    ++h->writes;
+    return !h->fail_write && offset <= IMAGE_SIZE && bytes <= IMAGE_SIZE - offset &&
+        pwrite(h->fd, buffer, bytes, (off_t)offset) == (ssize_t)bytes ? 0 : -1;
+}
+static int host_flush(void *context)
+{
+    HostFixture *h = context;
+    ++h->flushes;
+    return h->fail_flush ? -1 : fsync(h->fd);
+}
+static int host_cancelled(void *context) { return ((HostFixture *)context)->cancelled; }
+static void *host_allocate(void *context, size_t bytes) { (void)context; return malloc(bytes); }
+static void host_release(void *context, void *pointer) { (void)context; free(pointer); }
 
 void ntfs_set_error(char **error, const char *format, ...)
 {
@@ -86,6 +113,58 @@ int main(void)
     CHECK(!memcmp(observed + SECTOR, original + SECTOR, SECTOR));
     memcpy(original, observed, sizeof(original));
 
+    /* Exercise the same workspace stages through the actual V2 host lease.
+     * No raw device path is passed into these operations. */
+    HostFixture fixture = {.fd = fd};
+    IfsFsHostRuntimeV2 host = {
+        .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
+        .capabilities = IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE | IFS_FS_HOST_CANCEL,
+        .volume_bytes = IMAGE_SIZE, .logical_sector_bytes = SECTOR,
+        .physical_sector_bytes = SECTOR, .maximum_transfer_bytes = SECTOR,
+        .context = &fixture, .read_at = host_read, .write_at = host_write,
+        .flush = host_flush, .allocate = host_allocate, .release = host_release,
+        .cancelled = host_cancelled
+    };
+    IfsFsHostRuntimeV2 reader = host;
+    reader.capabilities = IFS_FS_HOST_READ_ONLY | IFS_FS_HOST_CANCEL;
+    reader.write_at = NULL; reader.flush = NULL;
+    CHECK(ntfs_stage_host_workspace(&reader, db, SECTOR, &error) != 0 && error);
+    free(error); error = NULL;
+    CHECK(fixture.writes == 0);
+    CHECK(ntfs_stage_host_workspace(&host, db, SECTOR, &error) == 0);
+    CHECK(ntfs_verify_host_workspace(&host, db, SECTOR, &error) == 0);
+    CHECK(ntfs_place_host_workspace(&host, db, SECTOR, false, &error) == 0);
+    CHECK(pread(fd, observed, sizeof(observed), 0) == sizeof(observed));
+    CHECK(!memcmp(observed + 3 * SECTOR, original + SECTOR, SECTOR));
+    memset(observed + SECTOR, 0x5a, SECTOR);
+    CHECK(pwrite(fd, observed + SECTOR, SECTOR, SECTOR) == SECTOR);
+    CHECK(ntfs_restore_host_workspace(&host, db, SECTOR, &error) == 0);
+    CHECK(pread(fd, observed, sizeof(observed), 0) == sizeof(observed));
+    CHECK(!memcmp(observed + SECTOR, original + SECTOR, SECTOR));
+    CHECK(fixture.writes >= 3 && fixture.flushes >= 3);
+    memcpy(original, observed, sizeof(original));
+
+    /* A failed durable flush or write must not commit workspace digests. */
+    CHECK(sqlite3_exec(db, "UPDATE workspace SET sha=NULL", NULL, NULL, NULL) == SQLITE_OK);
+    fixture.fail_flush = true;
+    CHECK(ntfs_stage_host_workspace(&host, db, SECTOR, &error) != 0 && error);
+    free(error); error = NULL; fixture.fail_flush = false;
+    sqlite3_stmt *digest = NULL;
+    CHECK(sqlite3_prepare_v2(db, "SELECT sha IS NULL FROM workspace", -1, &digest, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(digest) == SQLITE_ROW && sqlite3_column_int(digest, 0) == 1);
+    sqlite3_finalize(digest); digest = NULL;
+    fixture.fail_write = true;
+    CHECK(ntfs_stage_host_workspace(&host, db, SECTOR, &error) != 0 && error);
+    free(error); error = NULL; fixture.fail_write = false;
+    CHECK(sqlite3_prepare_v2(db, "SELECT sha IS NULL FROM workspace", -1, &digest, NULL) == SQLITE_OK);
+    CHECK(sqlite3_step(digest) == SQLITE_ROW && sqlite3_column_int(digest, 0) == 1);
+    sqlite3_finalize(digest); digest = NULL;
+    fixture.cancelled = true;
+    CHECK(ntfs_stage_host_workspace(&host, db, SECTOR, &error) == -2);
+    fixture.cancelled = false;
+    CHECK(pread(fd, observed, sizeof(observed), 0) == sizeof(observed));
+    memcpy(original, observed, sizeof(original));
+
     /* A target past the end or a wrapped negative slot must fail without
      * modifying any byte of the image. */
     CHECK(sqlite3_exec(db, "UPDATE workspace SET target=8", NULL, NULL, NULL) == SQLITE_OK);
@@ -117,6 +196,12 @@ int main(void)
     CHECK(strstr(error, "reading NTFS terminal workspace rows") != NULL);
     free(error); error = NULL;
     CHECK(ntfs_verify_workspace(path, db, SECTOR, "fixture", IMAGE_SIZE, &error) != 0 && error);
+    CHECK(strstr(error, "reading NTFS workspace verification rows") != NULL);
+    free(error); error = NULL;
+    CHECK(ntfs_place_host_workspace(&host, db, SECTOR, false, &error) != 0 && error);
+    CHECK(strstr(error, "reading NTFS terminal workspace rows") != NULL);
+    free(error); error = NULL;
+    CHECK(ntfs_verify_host_workspace(&host, db, SECTOR, &error) != 0 && error);
     CHECK(strstr(error, "reading NTFS workspace verification rows") != NULL);
     free(error); error = NULL;
     status = 0;
