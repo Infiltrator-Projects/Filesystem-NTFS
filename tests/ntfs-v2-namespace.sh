@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+set -euo pipefail
+test_app=$(realpath "${1:?Common V2 test executable required}")
+copy_tool=$(realpath "${2:?ntfscp required}")
+work=$(mktemp -d)
+trap 'rm -rf -- "$work"' EXIT
+image="$work/native.img"
+payload="$work/kernel-payload.bin"
+truncate -s 64M "$image"
+mkntfs -F -Q -L V2_NTFS_TEST "$image" >/dev/null
+# Real NTFS $MFT, allocation runlists and root directory index are used.
+head -c 65536 /dev/urandom > "$payload"
+"$copy_tool" -f "$image" "$payload" kernel.img
+sha256sum "$image" > "$work/source.sha"
+"$test_app" "$image" "$payload" --read
+(cd "$work" && sha256sum -c source.sha)
+cp "$image" "$work/bad.img"
+printf 'BADNTFS!' | dd of="$work/bad.img" bs=1 seek=3 conv=notrunc status=none
+"$test_app" "$work/bad.img" "$payload" --reject
+(cd "$work" && sha256sum -c source.sha)
+echo NTFS_V2_REAL_MEDIA_AND_CORRUPTION_PASS
