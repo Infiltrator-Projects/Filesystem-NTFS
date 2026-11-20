@@ -27,12 +27,15 @@ void ntfs_set_error(char **error, const char *format, ...) {
     int needed = vsnprintf(NULL, 0, format, copy);
     va_end(copy);
     if (needed < 0) {
-        *error = ld_xstrdup("NTFS engine error");
+        static const char fallback[] = "NTFS engine error";
+        *error = malloc(sizeof(fallback));
+        if (*error) memcpy(*error, fallback, sizeof(fallback));
         va_end(ap);
         return;
     }
-    *error = ld_xmalloc((size_t)needed + 1U);
-    (void)vsnprintf(*error, (size_t)needed + 1U, format, ap);
+    /* V2 errors must not need bound legacy host-services or abort on OOM. */
+    *error = malloc((size_t)needed + 1U);
+    if (*error) (void)vsnprintf(*error, (size_t)needed + 1U, format, ap);
     va_end(ap);
 }
 
@@ -62,6 +65,7 @@ void ntfs_runs_free(NtfsRunVec *runs) {
     free(runs->items); memset(runs, 0, sizeof(*runs));
 }
 int ntfs_runs_push(NtfsRunVec *runs, uint64_t lcn, uint64_t length, bool sparse) {
+    if (!runs || runs->count == SIZE_MAX) return -1;
     if (length == 0) return 0;
     if (runs->count != 0) {
         NtfsRun *last = &runs->items[runs->count - 1U];
@@ -80,7 +84,7 @@ int ntfs_runs_push(NtfsRunVec *runs, uint64_t lcn, uint64_t length, bool sparse)
     }
     if (!infiltratr_array_reserve((void **)&runs->items, &runs->capacity,
                                   sizeof(*runs->items), runs->count + 1U, 8U))
-        ld_die("cannot grow NTFS run list");
+        return -1;
     runs->items[runs->count++] = (NtfsRun){.lcn=lcn,.length=length,.sparse=sparse};
     return 0;
 }
@@ -491,7 +495,12 @@ int ntfs_write_stream(const NtfsVolume *volume, const NtfsRunVec *runs,
 
 int ntfs_read_record(const NtfsVolume *volume, const NtfsRunVec *mft_runs,
                      uint64_t record_number, uint8_t **raw, uint8_t **fixed, char **error) {
-    *raw=ld_xmalloc(volume->record_size); *fixed=ld_xmalloc(volume->record_size);
+    *raw=malloc(volume->record_size); *fixed=malloc(volume->record_size);
+    if (!*raw || !*fixed) {
+        ntfs_set_error(error,"out of memory reading NTFS MFT record");
+        free(*raw);free(*fixed);*raw=NULL;*fixed=NULL;
+        return -1;
+    }
     uint64_t record_offset = 0U;
     if (!infiltratr_u64_multiply_checked(record_number, volume->record_size,
                                          &record_offset) ||
@@ -519,9 +528,10 @@ void ntfs_attributes_free(NtfsAttributeVec *attributes) {
     free(attributes->items); memset(attributes,0,sizeof(*attributes));
 }
 static NtfsAttribute *attr_push(NtfsAttributeVec *vec) {
-    if (!infiltratr_array_reserve((void **)&vec->items, &vec->capacity,
+    if (!vec || vec->count == SIZE_MAX ||
+        !infiltratr_array_reserve((void **)&vec->items, &vec->capacity,
                                   sizeof(*vec->items), vec->count + 1U, 8U))
-        ld_die("cannot grow NTFS attribute list");
+        return NULL;
     NtfsAttribute *a=&vec->items[vec->count++]; memset(a,0,sizeof(*a)); return a;
 }
 static void decode_utf16_ascii(const uint8_t *data, size_t chars, char *out, size_t cap) {
@@ -538,7 +548,9 @@ int ntfs_parse_attributes(const uint8_t *fixed, size_t record_size,
         uint32_t type=ntfs_u32(fixed,position); if(type==UINT32_C(0xffffffff))return 0;
         uint32_t length=ntfs_u32(fixed,position+4U);
         if(length<24U || (uint64_t)position+length>in_use){ntfs_set_error(error,"invalid NTFS attribute record");goto fail;}
-        NtfsAttribute *a=attr_push(attributes); a->offset=position;a->length=length;a->type=type;a->nonresident=fixed[position+8U]!=0;a->flags=ntfs_u16(fixed,position+12U);
+        NtfsAttribute *a=attr_push(attributes);
+        if (!a) { ntfs_set_error(error,"out of memory parsing NTFS attributes"); goto fail; }
+        a->offset=position;a->length=length;a->type=type;a->nonresident=fixed[position+8U]!=0;a->flags=ntfs_u16(fixed,position+12U);
         unsigned name_chars=fixed[position+9U]; uint16_t name_off=ntfs_u16(fixed,position+10U);
         if(name_chars!=0){if(name_off<16U || (uint32_t)name_off+(uint32_t)name_chars*2U>length){ntfs_set_error(error,"invalid NTFS attribute name");goto fail;}decode_utf16_ascii(fixed+position+name_off,name_chars,a->name,sizeof(a->name));}
         if(a->nonresident){
@@ -560,7 +572,11 @@ static NtfsAttribute *find_unnamed_nonresident(NtfsAttributeVec *attrs,uint32_t 
     NtfsAttribute *found=NULL;for(size_t i=0;i<attrs->count;++i){NtfsAttribute *a=&attrs->items[i];if(a->type==type&&a->nonresident&&a->name[0]=='\0'){if(found!=NULL)return NULL;found=a;}}return found;
 }
 static int read_record0(NtfsVolume *volume,NtfsRunVec *mft_runs,uint64_t *data_size,char **error){
-    uint8_t *raw=ld_xmalloc(volume->record_size),*fixed=ld_xmalloc(volume->record_size);
+    uint8_t *raw=malloc(volume->record_size),*fixed=malloc(volume->record_size);
+    if (!raw || !fixed) {
+        ntfs_set_error(error,"out of memory reading NTFS $MFT");
+        free(raw);free(fixed);return -1;
+    }
     ssize_t got=ntfs_device_pread_full(volume,raw,volume->record_size,volume->mft_lcn*volume->cluster_size);
     if(got<0||(size_t)got!=volume->record_size||memcmp(raw,"FILE",4)!=0||ntfs_apply_fixups(raw,volume->record_size,volume->bytes_per_sector,fixed,error)!=0){if(error&&*error==NULL)ntfs_set_error(error,"NTFS $MFT record zero was not found");free(raw);free(fixed);return -1;}
     NtfsAttributeVec attrs={0};if(ntfs_parse_attributes(fixed,volume->record_size,&attrs,error)!=0){free(raw);free(fixed);return -1;}
@@ -621,10 +637,24 @@ int ntfs_read_layout(NtfsVolume *volume, bool allow_dirty, NtfsLayout *layout, c
     NtfsAttribute *bitmap=find_unnamed_nonresident(&attrs,NTFS_ATTR_DATA);
     if(bitmap==NULL||bitmap->lowest_vcn!=0){ntfs_set_error(error,"unsupported split or resident NTFS $Bitmap stream");ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail;}
     for(size_t i=0;i<bitmap->runs.count;++i)if(ntfs_runs_push(&layout->bitmap_runs,bitmap->runs.items[i].lcn,bitmap->runs.items[i].length,bitmap->runs.items[i].sparse)!=0){ntfs_set_error(error,"bitmap runlist overflow");ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail;}
-    layout->bitmap_data_size=bitmap->data_size;layout->bitmap_bytes=(size_t)bitmap->data_size;layout->bitmap=ld_xmalloc(layout->bitmap_bytes);
+    if (!bitmap->data_size || bitmap->data_size > SIZE_MAX ||
+        bitmap->data_size > NTFS_SUBSET_MEMORY_LIMIT) {
+        ntfs_set_error(error,"unsupported or corrupt NTFS $Bitmap size");
+        ntfs_attributes_free(&attrs);free(raw);free(fixed);goto fail;
+    }
+    layout->bitmap_data_size=bitmap->data_size;
+    layout->bitmap_bytes=(size_t)bitmap->data_size;
+    layout->bitmap=malloc(layout->bitmap_bytes);
     ntfs_attributes_free(&attrs);free(raw);free(fixed);
+    if (!layout->bitmap) {
+        ntfs_set_error(error,"out of memory reading NTFS $Bitmap");
+        goto fail;
+    }
     if(ntfs_read_stream(volume,&layout->bitmap_runs,0,layout->bitmap,layout->bitmap_bytes,error)!=0)goto fail;
-    if(layout->bitmap_bytes*8U<volume->total_clusters){ntfs_set_error(error,"NTFS $Bitmap is shorter than the volume");goto fail;}
+    if(layout->bitmap_bytes < volume->total_clusters / 8u +
+        (volume->total_clusters % 8u != 0u)){
+        ntfs_set_error(error,"NTFS $Bitmap is shorter than the volume");goto fail;
+    }
     return 0;
 fail:ntfs_layout_free(layout);return -1;
 }
@@ -656,8 +686,12 @@ int ntfs_set_volume_dirty(NtfsVolume *volume, NtfsLayout *layout, bool dirty, ch
     }
     if (ntfs_read_record(volume, &layout->mft_runs, 3, &raw, &fixed, error) != 0)
         goto done;
-    mirror_raw = ld_xmalloc(volume->record_size);
-    mirror_fixed = ld_xmalloc(volume->record_size);
+    mirror_raw = malloc(volume->record_size);
+    mirror_fixed = malloc(volume->record_size);
+    if (!mirror_raw || !mirror_fixed) {
+        ntfs_set_error(error,"out of memory reading NTFS mirror");
+        goto done;
+    }
     ssize_t got = ntfs_device_pread_full(volume, mirror_raw, volume->record_size, mirror_off);
     if (got < 0 || (size_t)got != volume->record_size ||
         memcmp(mirror_raw, "FILE", 4) != 0) {

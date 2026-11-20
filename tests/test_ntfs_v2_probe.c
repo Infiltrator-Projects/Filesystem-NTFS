@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include <infiltratr/filesystem_module_v2.h>
+#include "ntfs_native.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,5 +67,27 @@ int main(void) {
     CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT);
     put64(disk+40,128);h.maximum_transfer_bytes=0;
     CHECK(core->probe(&h,&variant)==IFS_FS_INVALID);
+    /* Common V2's canonical NTFS parser must reject impossible count and
+     * malformed on-media records without the legacy fatal-error callback. */
+    {
+        NtfsRunVec runs={0};
+        CHECK(ntfs_runs_push(&runs,3u,2u,false)==0);
+        CHECK(ntfs_runs_push(&runs,5u,2u,false)==0);
+        CHECK(runs.count==1u && runs.items[0].length==4u);
+        ntfs_runs_free(&runs);
+        runs.count=SIZE_MAX;
+        CHECK(ntfs_runs_push(&runs,7u,1u,false)!=0);
+        runs.count=0u;
+    }
+    {
+        uint8_t record[128]={0};
+        NtfsAttributeVec attrs={0};
+        char *reason=NULL;
+        record[20]=48u;record[24]=96u;
+        CHECK(ntfs_parse_attributes(record,sizeof(record),&attrs,&reason)!=0);
+        CHECK(reason!=NULL);
+        free(reason);
+        ntfs_attributes_free(&attrs);
+    }
     return 0;
 }
