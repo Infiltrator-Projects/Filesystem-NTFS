@@ -3,6 +3,7 @@
 
 #include "infiltratr/core.h"
 #include "infiltratr/arithmetic.h"
+#include "infiltratr/posix_io.h"
 #include "infiltratr/endian.h"
 #include "ld_device.h"
 #include "ld_io.h"
@@ -292,12 +293,27 @@ done:
     return result;
 }
 
+/* Hosted raw-fd helpers use Common's exact, range-checked POSIX I/O.
+ * The runtime V1 defragmenter service trampoline is never needed by V2. */
+static ssize_t ntfs_owned_pread_full(int fd, void *buf, size_t count,
+                                     uint64_t at)
+{
+    return infiltratr_pread_full(fd, buf, count, at) == 0 ?
+           (ssize_t)count : -1;
+}
+static ssize_t ntfs_owned_pwrite_full(int fd, const void *buf, size_t count,
+                                      uint64_t at)
+{
+    return infiltratr_pwrite_full(fd, buf, count, at) == 0 ?
+           (ssize_t)count : -1;
+}
+
 static ssize_t ntfs_device_pread_full(const NtfsVolume *volume, void *data,
                                       size_t count, uint64_t offset)
 {
     return volume->host
         ? ntfs_host_transfer(volume->host, data, count, offset, false)
-        : ld_pread_full(volume->fd, data, count, offset);
+        : ntfs_owned_pread_full(volume->fd, data, count, offset);
 }
 
 static ssize_t ntfs_device_pwrite_full(const NtfsVolume *volume, const void *data,
@@ -305,7 +321,7 @@ static ssize_t ntfs_device_pwrite_full(const NtfsVolume *volume, const void *dat
 {
     return volume->host
         ? ntfs_host_transfer(volume->host, (void *)data, count, offset, true)
-        : ld_pwrite_full(volume->fd, data, count, offset);
+        : ntfs_owned_pwrite_full(volume->fd, data, count, offset);
 }
 
 int ntfs_sync_volume(const NtfsVolume *volume)
@@ -437,7 +453,7 @@ int ntfs_open_volume(const char *path, bool write, NtfsVolume *volume, char **er
         ntfs_set_error(error, "cannot lock NTFS target exclusively: %s", strerror(errno)); close(fd); free(real); return -1;
     }
     uint8_t boot[512];
-    ssize_t got = ld_pread_full(fd, boot, sizeof(boot), 0);
+    ssize_t got = ntfs_owned_pread_full(fd, boot, sizeof(boot), 0);
     if (got != (ssize_t)sizeof(boot) || memcmp(boot + 3, "NTFS    ", 8) != 0 || boot[510] != 0x55 || boot[511] != 0xaa) {
         ntfs_set_error(error, "target does not contain a valid NTFS boot sector"); close(fd); free(real); return -1;
     }
