@@ -96,6 +96,7 @@ if(BUILD_TESTING)
  find_program(NTFS_FIX_TOOL ntfsfix REQUIRED)
  find_program(NTFS_RESIZE_TOOL ntfsresize REQUIRED)
  find_program(NTFS_COPY_TOOL ntfscp REQUIRED)
+ find_program(NTFS_MKFS_TOOL NAMES mkntfs REQUIRED)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
     "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}" "${NTFS_COPY_TOOL}")
@@ -131,7 +132,7 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-v2-namespace-test PRIVATE ntfs-driver InfiltratrCommon::Common)
  add_test(NAME ntfs-v2-real-media-namespace
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/ntfs-v2-namespace.sh"
-   "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}")
+   "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}" "${NTFS_MKFS_TOOL}")
  add_test(NAME ntfs-production-v2-only
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")

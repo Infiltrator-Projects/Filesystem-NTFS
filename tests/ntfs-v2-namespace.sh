@@ -3,12 +3,13 @@
 set -euo pipefail
 test_app=$(realpath "${1:?Common V2 test executable required}")
 copy_tool=$(realpath "${2:?ntfscp required}")
+mkfs_tool=$(realpath "${3:?mkntfs required}")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 image="$work/native.img"
 payload="$work/kernel-payload.bin"
 truncate -s 64M "$image"
-mkntfs -F -Q -L V2_NTFS_TEST "$image" >/dev/null
+"$mkfs_tool" -F -Q -L V2_NTFS_TEST "$image" >/dev/null
 # Real NTFS $MFT, allocation runlists and root directory index are used.
 head -c 65536 /dev/urandom > "$payload"
 "$copy_tool" -f "$image" "$payload" kernel.img
