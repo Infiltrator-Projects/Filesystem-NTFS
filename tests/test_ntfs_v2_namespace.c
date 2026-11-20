@@ -2,7 +2,6 @@
  * End-to-end hosted Common V2 test on independently formatted NTFS media.
  * This harness receives only a read-only, partition-relative block host.
  */
-#define _GNU_SOURCE
 #include <infiltratr/filesystem_module_v2.h>
 #include <fcntl.h>
 #include <stdint.h>
