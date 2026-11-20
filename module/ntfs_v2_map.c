@@ -316,7 +316,7 @@ static int ntfs_entry_v2(ntfs_inode *inode, const char *name,
         }
         entry->size_bytes = (uint64_t)data->data_size;
         entry->type = IFS_FS_ENTRY_FILE;
-        if (ntfs_attr_close(data)) return IFS_FS_IO_ERROR;
+        ntfs_attr_close(data);
     }
     memcpy(entry->name, name, len);
     entry->name[len] = '\0';
@@ -485,8 +485,7 @@ int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
                      ntfs_attr_pread(attr, (s64)offset, (s64)length, destination)
                        != (s64)length)
                 rc = map_errno();
-            if (attr && ntfs_attr_close(attr) && rc == IFS_FS_OK)
-                rc = IFS_FS_IO_ERROR;
+            if (attr) ntfs_attr_close(attr);
         }
         if (ntfs_inode_close(inode) && rc == IFS_FS_OK)
             rc = IFS_FS_IO_ERROR;
