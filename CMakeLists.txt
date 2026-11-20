@@ -56,6 +56,7 @@ if(BUILD_TESTING)
  # Historical native worker, Defragmenter adapter and fixture API are
  # retained for regression only; none is linked into shipped NTFS.so.
  add_library(ntfs-legacy-test-support SHARED
+  native/ntfs_common.c native/ntfs_catalog.c
   native/ntfs_plan.c native/ntfs_plan_db.cpp native/ntfs_transaction.c
   native/ntfs_worker.c compat/legacy_services.c compat/runtime_alloc.c
   module/ntfs_module.c fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c)
@@ -79,7 +80,7 @@ if(BUILD_TESTING)
  add_executable(ntfs-v2-probe-test
    tests/test_ntfs_v2_probe.c)
  target_link_libraries(ntfs-v2-probe-test PRIVATE
-   ntfs-driver InfiltratrCommon::Common)
+   ntfs-driver ntfs-legacy-test-support InfiltratrCommon::Common)
  target_include_directories(ntfs-v2-probe-test PRIVATE
    "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_include_directories(ntfs-v2-probe-test PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
