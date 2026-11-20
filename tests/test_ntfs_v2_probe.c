@@ -28,7 +28,7 @@ int main(void) {
     CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
     CHECK(core && core->probe && core->mount && core->unmount &&
-          !core->stat && !core->read && !core->write);
+          core->stat && core->directory_entry && core->read && !core->write);
     const IfsFsVolumeOpsV2 *volume_ops = (const void *)
         ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
     CHECK(volume_ops && volume_ops->query && volume_ops->format &&

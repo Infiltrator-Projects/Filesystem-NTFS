@@ -1,0 +1,4 @@
+{
+  global: infiltrator_filesystem_api_v2;
+  local: *;
+};

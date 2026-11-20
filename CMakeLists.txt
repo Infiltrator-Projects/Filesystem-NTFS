@@ -32,28 +32,47 @@ target_compile_options(ntfs-formatter PRIVATE -Wall -Wextra -Werror -fvisibility
 set_source_files_properties(formatter/mkntfs.c formatter/sd.c PROPERTIES
  COMPILE_OPTIONS "-Wno-address-of-packed-member")
 target_link_libraries(ntfs-formatter PRIVATE InfiltratrCommon::Common)
+# The installed module contains the source-owned NTFS parser, Common V2
+# and a hosted read-only namespace. Retired V1 workers are test-only.
 add_library(ntfs-driver SHARED
- native/ntfs_catalog.c native/ntfs_common.c native/ntfs_plan.c
- native/ntfs_plan_db.cpp native/ntfs_transaction.c native/ntfs_worker.c
- compat/legacy_services.c compat/runtime_alloc.c module/ntfs_module.c module/ntfs_v2_probe.c
- module/ntfs_v2_map.c
- fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c $<TARGET_OBJECTS:ntfs-formatter>)
-set_source_files_properties(native/ntfs_worker.c
- PROPERTIES COMPILE_DEFINITIONS "main=ifs_ntfs_worker_main")
-set_source_files_properties(fixtures/ntfs_codec.c PROPERTIES
- COMPILE_DEFINITIONS "ldtm_raw_ntfs=ifs_ntfs_raw_fixture")
+ native/ntfs_common.c native/ntfs_catalog.c
+ module/ntfs_v2_probe.c module/ntfs_v2_map.c
+ $<TARGET_OBJECTS:ntfs-formatter>)
 set_target_properties(ntfs-driver PROPERTIES PREFIX "" OUTPUT_NAME "NTFS" SUFFIX ".so")
 target_compile_definitions(ntfs-driver PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
-target_compile_options(ntfs-driver PRIVATE -Wall -Wextra -Wpedantic -Werror)
+target_compile_options(ntfs-driver PRIVATE -Wall -Wextra -Wpedantic -Werror
+ -ffunction-sections -fdata-sections -fvisibility=hidden)
 target_include_directories(ntfs-driver SYSTEM PRIVATE "${NTFS3G_INCLUDE_DIR}")
-set_source_files_properties(module/ntfs_v2_map.c PROPERTIES COMPILE_OPTIONS "-fvisibility=hidden")
-target_link_options(ntfs-driver PRIVATE -Wl,-z,defs)
+target_link_options(ntfs-driver PRIVATE -Wl,-z,defs -Wl,--gc-sections
+ "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/module/v2-only.map")
 target_include_directories(ntfs-driver PRIVATE
  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
- "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include"
- "${CMAKE_CURRENT_BINARY_DIR}" "${infiltratr_common_SOURCE_DIR}/include")
-target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3
+ "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_BINARY_DIR}"
+ "${infiltratr_common_SOURCE_DIR}/include")
+target_link_libraries(ntfs-driver PRIVATE InfiltratrCommon::Common OpenSSL::Crypto
  Threads::Threads "${NTFS3G_LIBRARY}")
+
+if(BUILD_TESTING)
+ # Historical native worker, Defragmenter adapter and fixture API are
+ # retained for regression only; none is linked into shipped NTFS.so.
+ add_library(ntfs-legacy-test-support SHARED
+  native/ntfs_plan.c native/ntfs_plan_db.cpp native/ntfs_transaction.c
+  native/ntfs_worker.c compat/legacy_services.c compat/runtime_alloc.c
+  module/ntfs_module.c fixtures/ntfs_codec.c module/ntfs_fixture_bridge.c)
+ set_source_files_properties(native/ntfs_worker.c
+  PROPERTIES COMPILE_DEFINITIONS "main=ifs_ntfs_worker_main")
+ set_source_files_properties(fixtures/ntfs_codec.c
+  PROPERTIES COMPILE_DEFINITIONS "ldtm_raw_ntfs=ifs_ntfs_raw_fixture")
+ target_compile_definitions(ntfs-legacy-test-support PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
+ target_include_directories(ntfs-legacy-test-support PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/native" "${CMAKE_CURRENT_SOURCE_DIR}/compat"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/include"
+  "${CMAKE_CURRENT_BINARY_DIR}" "${infiltratr_common_SOURCE_DIR}/include")
+ target_link_libraries(ntfs-legacy-test-support PRIVATE ntfs-driver
+  InfiltratrCommon::Common OpenSSL::Crypto SQLite::SQLite3 Threads::Threads
+  "${NTFS3G_LIBRARY}")
+endif()
+
 if(BUILD_TESTING)
  # Qualify V2 directly against bounded host I/O, without publishing a
  # probe-only binary as a fully functional NTFS filesystem.
@@ -71,7 +90,7 @@ if(BUILD_TESTING)
  target_compile_definitions(ntfs-v2-format-test PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
  target_compile_options(ntfs-v2-format-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
  target_include_directories(ntfs-v2-format-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
- target_link_libraries(ntfs-v2-format-test PRIVATE ntfs-driver InfiltratrCommon::Common SQLite::SQLite3 OpenSSL::Crypto)
+ target_link_libraries(ntfs-v2-format-test PRIVATE ntfs-driver ntfs-legacy-test-support InfiltratrCommon::Common SQLite::SQLite3 OpenSSL::Crypto)
  find_program(NTFS_LABEL_TOOL ntfslabel REQUIRED)
  find_program(NTFS_FIX_TOOL ntfsfix REQUIRED)
  find_program(NTFS_RESIZE_TOOL ntfsresize REQUIRED)
@@ -92,18 +111,18 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-workspace-safety-test PRIVATE InfiltratrCommon::Common
    SQLite::SQLite3 OpenSSL::Crypto)
  add_test(NAME ntfs-workspace-safety COMMAND ntfs-workspace-safety-test)
- # Retain the old interface until Defragmenter's ntfs_module_loader.c uses V2.
+ # Preserve historical V1 fixture tests outside the installed module.
  add_executable(ntfs-legacy-compat-test tests/test_module.c)
  target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")
- target_link_libraries(ntfs-legacy-compat-test PRIVATE ntfs-driver)
+ target_link_libraries(ntfs-legacy-compat-test PRIVATE ntfs-legacy-test-support)
  add_test(NAME ntfs-v1-consumer-compat COMMAND ntfs-legacy-compat-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
  target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
- target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-driver SQLite::SQLite3)
+ target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-legacy-test-support SQLite::SQLite3)
  add_test(NAME ntfs-native-stream-index COMMAND ntfs-stream-index-test)
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
  target_include_directories(ntfs-journal-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
- target_link_libraries(ntfs-journal-test PRIVATE ntfs-driver)
+ target_link_libraries(ntfs-journal-test PRIVATE ntfs-legacy-test-support)
  add_test(NAME ntfs-journal-argument-validation COMMAND ntfs-journal-test)
 
 endif()

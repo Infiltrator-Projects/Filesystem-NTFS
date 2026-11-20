@@ -99,6 +99,10 @@ static int map_errno(void)
         return IFS_FS_NOT_FOUND;
     if (errno == ENOMEM)
         return IFS_FS_NO_MEMORY;
+    if (errno == EIO)
+        return IFS_FS_IO_ERROR;
+    if (errno == EOPNOTSUPP)
+        return IFS_FS_UNSUPPORTED;
     return IFS_FS_CORRUPT;
 }
 
@@ -109,8 +113,10 @@ static int lookup_file(ntfs_volume *volume, const char *path, ntfs_inode **resul
     *result = NULL;
     if (!path || path[0] != '/' || strnlen(path, 4096u) == 4096u)
         return IFS_FS_INVALID;
-    if (!path[1])
-        return IFS_FS_UNSUPPORTED;
+    if (!path[1]) {
+        *result = ntfs_inode_open(volume, FILE_root);
+        return *result ? IFS_FS_OK : map_errno();
+    }
     iconv_t converter = iconv_open("UTF-16LE", "UTF-8");
     if (converter == (iconv_t)-1)
         return IFS_FS_IO_ERROR;
@@ -249,4 +255,243 @@ int ifs_ntfs_map_readonly(const IfsFsHostRuntimeV2 *host, const char *path,
     if (status != IFS_FS_OK)
         *written = 0u;
     return status;
+}
+
+
+/* Hosted Common V2 namespace: one on-disk NTFS engine and one bounded
+ * partition-relative, strictly read-only device. This does not claim that
+ * libntfs-3g is freestanding: BOOT must reject this hosted-only .so until a
+ * separate source-owned, no-import firmware profile is qualified. */
+static int ntfs_open_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                                NtfsReadDevice *reader,
+                                ntfs_volume **volume)
+{
+    struct ntfs_device *device;
+    if (!host || !reader || !volume || !ifs_fs_host_v2_valid(host) ||
+        !(host->capabilities & IFS_FS_HOST_READ_ONLY))
+        return IFS_FS_INVALID;
+    *volume = NULL;
+    reader->host = host;
+    reader->position = 0;
+    device = ntfs_device_alloc("Common V2 NTFS read-only", 0,
+                               &readonly_operations, reader);
+    if (!device) return IFS_FS_NO_MEMORY;
+    *volume = ntfs_device_mount(device, NTFS_MNT_RDONLY | NTFS_MNT_FORENSIC);
+    if (!*volume) {
+        int rc = map_errno();
+        ntfs_device_free(device);
+        return rc;
+    }
+    if (ntfs_set_ignore_case(*volume)) {
+        int rc = map_errno();
+        (void)ntfs_umount(*volume, FALSE);
+        *volume = NULL;
+        return rc;
+    }
+    return IFS_FS_OK;
+}
+
+static int ntfs_entry_v2(ntfs_inode *inode, const char *name,
+                         IfsFsEntryV2 *entry)
+{
+    size_t len;
+    ntfs_attr *data;
+    if (!inode || !name || !entry ||
+        entry->structure_bytes < sizeof(*entry) || !entry->name)
+        return IFS_FS_INVALID;
+    len = strlen(name);
+    if (!len || len > 1020u) return IFS_FS_CORRUPT;
+    if (len >= entry->name_capacity) return IFS_FS_NO_SPACE;
+    if (inode->flags & FILE_ATTR_REPARSE_POINT)
+        return IFS_FS_UNSUPPORTED;
+    if (inode->mrec->flags & MFT_RECORD_IS_DIRECTORY) {
+        entry->type = IFS_FS_ENTRY_DIRECTORY;
+        entry->size_bytes = 0u;
+    } else {
+        data = ntfs_attr_open(inode, AT_DATA, AT_UNNAMED, 0u);
+        if (!data) return map_errno();
+        if (data->data_size < 0) {
+            (void)ntfs_attr_close(data);
+            return IFS_FS_CORRUPT;
+        }
+        entry->size_bytes = (uint64_t)data->data_size;
+        entry->type = IFS_FS_ENTRY_FILE;
+        if (ntfs_attr_close(data)) return IFS_FS_IO_ERROR;
+    }
+    memcpy(entry->name, name, len);
+    entry->name[len] = '\0';
+    entry->name_bytes = (uint32_t)len;
+    entry->attributes = inode->flags;
+    return IFS_FS_OK;
+}
+
+int ifs_ntfs_stat_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, IfsFsEntryV2 *entry)
+{
+    NtfsReadDevice reader = {0};
+    ntfs_volume *volume = NULL;
+    ntfs_inode *inode = NULL;
+    const char *name;
+    int rc;
+    if (!path || !entry || entry->structure_bytes < sizeof(*entry) ||
+        !entry->name || !entry->name_capacity) return IFS_FS_INVALID;
+    rc = ntfs_open_readonly_v2(host, &reader, &volume);
+    if (rc != IFS_FS_OK) return rc;
+    rc = lookup_file(volume, path, &inode);
+    if (rc == IFS_FS_OK) {
+        name = strrchr(path, '/');
+        name = name && name[1] ? name + 1 : "/";
+        rc = ntfs_entry_v2(inode, name, entry);
+        if (ntfs_inode_close(inode) && rc == IFS_FS_OK)
+            rc = IFS_FS_IO_ERROR;
+    }
+    if (ntfs_umount(volume, FALSE) && rc == IFS_FS_OK)
+        rc = IFS_FS_IO_ERROR;
+    return rc;
+}
+
+typedef struct {
+    ntfs_volume *volume;
+    IfsFsEntryV2 *entry;
+    uint32_t wanted;
+    uint32_t ordinal;
+    int found;
+    int error;
+} NtfsListV2;
+
+/* Called exclusively by the format-owned NTFS index reader. DOS aliases,
+ * dot records and root synthetic parents are not extra V2 entries. */
+static int ntfs_list_callback_v2(void *arg, const ntfschar *name,
+                                 const int name_len, const int name_type,
+                                 const s64 pos, const MFT_REF mref,
+                                 const unsigned dt_type)
+{
+    NtfsListV2 *ctx = arg;
+    ntfs_inode *child;
+    iconv_t converter;
+    char utf8[1024];
+    char *input, *output;
+    size_t available, remaining, length;
+    int rc;
+    (void)pos;
+    (void)dt_type;
+    if (ctx->found || ctx->error != IFS_FS_OK) return 0;
+    if (name_type == FILE_NAME_DOS) return 0;
+    if (!name || name_len <= 0 || name_len > 255) {
+        ctx->error = IFS_FS_CORRUPT;
+        return 0;
+    }
+    if ((name_len == 1 && name[0] == (ntfschar)'.') ||
+        (name_len == 2 && name[0] == (ntfschar)'.' &&
+         name[1] == (ntfschar)'.')) return 0;
+    if (ctx->ordinal != ctx->wanted) {
+        if (ctx->ordinal == UINT32_MAX) ctx->error = IFS_FS_CORRUPT;
+        else ++ctx->ordinal;
+        return 0;
+    }
+    converter = iconv_open("UTF-8", "UTF-16LE");
+    if (converter == (iconv_t)-1) {
+        ctx->error = IFS_FS_UNSUPPORTED;
+        return 0;
+    }
+    input = (char *)(void *)name;
+    output = utf8;
+    remaining = (size_t)name_len * sizeof(*name);
+    available = sizeof(utf8) - 1u;
+    rc = iconv(converter, &input, &remaining, &output, &available) == (size_t)-1 ||
+         remaining != 0u ? IFS_FS_CORRUPT : IFS_FS_OK;
+    (void)iconv_close(converter);
+    if (rc != IFS_FS_OK) {
+        ctx->error = rc;
+        return 0;
+    }
+    length = (size_t)(output - utf8);
+    utf8[length] = '\0';
+    child = ntfs_inode_open(ctx->volume, mref);
+    if (!child) {
+        ctx->error = map_errno();
+        return 0;
+    }
+    ctx->error = ntfs_entry_v2(child, utf8, ctx->entry);
+    if (ntfs_inode_close(child) && ctx->error == IFS_FS_OK)
+        ctx->error = IFS_FS_IO_ERROR;
+    ctx->found = (ctx->error == IFS_FS_OK);
+    return 0;
+}
+
+int ifs_ntfs_list_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, uint32_t index,
+                             IfsFsEntryV2 *entry)
+{
+    NtfsReadDevice reader = {0};
+    ntfs_volume *volume = NULL;
+    ntfs_inode *dir = NULL;
+    NtfsListV2 ctx = {0};
+    s64 position = 0;
+    int rc;
+    if (!path || !entry || entry->structure_bytes < sizeof(*entry) ||
+        !entry->name || !entry->name_capacity) return IFS_FS_INVALID;
+    rc = ntfs_open_readonly_v2(host, &reader, &volume);
+    if (rc != IFS_FS_OK) return rc;
+    rc = lookup_file(volume, path, &dir);
+    if (rc == IFS_FS_OK) {
+        if (!(dir->mrec->flags & MFT_RECORD_IS_DIRECTORY))
+            rc = IFS_FS_INVALID;
+        else {
+            ctx.volume = volume;
+            ctx.entry = entry;
+            ctx.wanted = index;
+            if (ntfs_readdir(dir, &position, &ctx, ntfs_list_callback_v2))
+                rc = map_errno();
+            else
+                rc = ctx.error == IFS_FS_OK ?
+                     (ctx.found ? IFS_FS_OK : IFS_FS_END) : ctx.error;
+        }
+        if (ntfs_inode_close(dir) && rc >= 0)
+            rc = IFS_FS_IO_ERROR;
+    }
+    if (ntfs_umount(volume, FALSE) && rc >= 0)
+        rc = IFS_FS_IO_ERROR;
+    return rc;
+}
+
+int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, uint64_t offset,
+                             void *destination, uint32_t length)
+{
+    NtfsReadDevice reader = {0};
+    ntfs_volume *volume = NULL;
+    ntfs_inode *inode = NULL;
+    ntfs_attr *attr = NULL;
+    int rc;
+    if (!path || (!destination && length)) return IFS_FS_INVALID;
+    rc = ntfs_open_readonly_v2(host, &reader, &volume);
+    if (rc != IFS_FS_OK) return rc;
+    rc = lookup_file(volume, path, &inode);
+    if (rc == IFS_FS_OK) {
+        if ((inode->mrec->flags & MFT_RECORD_IS_DIRECTORY))
+            rc = IFS_FS_INVALID;
+        else if (inode->flags & (FILE_ATTR_REPARSE_POINT |
+                                 FILE_ATTR_COMPRESSED | FILE_ATTR_ENCRYPTED))
+            rc = IFS_FS_UNSUPPORTED;
+        else {
+            attr = ntfs_attr_open(inode, AT_DATA, AT_UNNAMED, 0u);
+            if (!attr) rc = map_errno();
+            else if (attr->data_size < 0 || offset > (uint64_t)attr->data_size ||
+                     length > (uint64_t)attr->data_size - offset ||
+                     offset > INT64_MAX)
+                rc = IFS_FS_INVALID;
+            else if (length &&
+                     ntfs_attr_pread(attr, (s64)offset, (s64)length, destination)
+                       != (s64)length)
+                rc = map_errno();
+            if (attr && ntfs_attr_close(attr) && rc == IFS_FS_OK)
+                rc = IFS_FS_IO_ERROR;
+        }
+        if (ntfs_inode_close(inode) && rc == IFS_FS_OK)
+            rc = IFS_FS_IO_ERROR;
+    }
+    if (ntfs_umount(volume, FALSE) && rc == IFS_FS_OK)
+        rc = IFS_FS_IO_ERROR;
+    return rc;
 }

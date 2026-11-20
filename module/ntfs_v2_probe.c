@@ -21,6 +21,14 @@ typedef struct {
 int ifs_ntfs_map_readonly(const IfsFsHostRuntimeV2 *host, const char *path,
                          uint64_t first, IfsFsExtentV2 *out,
                          uint32_t capacity, uint32_t *written);
+int ifs_ntfs_stat_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, IfsFsEntryV2 *entry);
+int ifs_ntfs_list_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, uint32_t index,
+                             IfsFsEntryV2 *entry);
+int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
+                             const char *path, uint64_t offset,
+                             void *destination, uint32_t length);
 
 static int native_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant)
 {
@@ -171,12 +179,39 @@ static const IfsFsVolumeOpsV2 volume_ops = {
     .query = ntfs_volume_query,
     .format = ifs_ntfs_format
 };
+
+static int stat_file(void *handle, const char *path, IfsFsEntryV2 *entry)
+{
+    const MountedNtfs *volume = handle;
+    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
+    return ifs_ntfs_stat_readonly_v2(&volume->host, path, entry);
+}
+static int list_file(void *handle, const char *path, uint32_t index,
+                     IfsFsEntryV2 *entry)
+{
+    const MountedNtfs *volume = handle;
+    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
+    return ifs_ntfs_list_readonly_v2(&volume->host, path, index, entry);
+}
+static int read_file(void *handle, const char *path, uint64_t offset,
+                     void *destination, uint32_t length)
+{
+    const MountedNtfs *volume = handle;
+    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
+    return ifs_ntfs_read_readonly_v2(&volume->host, path, offset,
+                                    destination, length);
+}
+
 static const IfsFsCoreOpsV2 core = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),
-                IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE | IFS_FS_CORE_MOUNT },
+                IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE | IFS_FS_CORE_MOUNT |
+                IFS_FS_CORE_STAT | IFS_FS_CORE_LIST | IFS_FS_CORE_READ },
     .probe = native_probe,
     .mount = native_mount,
-    .unmount = native_unmount
+    .unmount = native_unmount,
+    .stat = stat_file,
+    .directory_entry = list_file,
+    .read = read_file
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
     if (lo > IFS_FS_GROUP_ABI_V2 || hi < IFS_FS_GROUP_ABI_V2)
