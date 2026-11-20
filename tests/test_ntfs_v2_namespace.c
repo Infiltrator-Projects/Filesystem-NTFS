@@ -71,6 +71,15 @@ int main(int argc,char **argv)
     }
     CHECK(core->probe(&host,&variant)==IFS_FS_OK && variant==1u);
     CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK && mounted);
+    void *peer=NULL;
+    info.structure_bytes=sizeof(info);
+    CHECK(core->mount(&host,&peer,&info)==IFS_FS_OK &&
+          peer && peer!=mounted);
+    const IfsFsVolumeOpsV2 *volume_ops=(const void *)
+        ifs_fs_group_v2(api,IFS_FS_GROUP_VOLUME);
+    CHECK(volume_ops && volume_ops->query);
+    info.structure_bytes=sizeof(info);
+    CHECK(volume_ops->query(peer,&info)==IFS_FS_OK);
     char name[1024]={0};
     IfsFsEntryV2 entry={.structure_bytes=sizeof(entry),.name=name,
                         .name_capacity=sizeof(name)};
@@ -111,6 +120,23 @@ int main(int argc,char **argv)
     CHECK(core->stat(mounted,"/missing.img",&entry)==IFS_FS_NOT_FOUND);
     CHECK(core->read(mounted,"/../kernel.img",0u,actual,1u)==IFS_FS_INVALID);
     CHECK(core->unmount(mounted)==IFS_FS_OK);
+    info.structure_bytes=sizeof(info);
+    CHECK(volume_ops->query(mounted,&info)==IFS_FS_INVALID);
+    CHECK(core->stat(mounted,"/kernel.img",&entry)==IFS_FS_INVALID);
+    CHECK(core->read(mounted,"/kernel.img",0u,actual,16u)==IFS_FS_INVALID);
+    CHECK(core->unmount(mounted)==IFS_FS_INVALID);
+    CHECK(volume_ops->query(peer,&info)==IFS_FS_OK);
+    CHECK(core->read(peer,"/kernel.img",0u,actual,
+                     (uint32_t)source.st_size)==IFS_FS_OK);
+    CHECK(!memcmp(expected,actual,(size_t)source.st_size));
+    CHECK(core->unmount(peer)==IFS_FS_OK);
+    CHECK(volume_ops->query(peer,&info)==IFS_FS_INVALID);
+    void *replacement=NULL;
+    info.structure_bytes=sizeof(info);
+    CHECK(core->mount(&host,&replacement,&info)==IFS_FS_OK &&
+          replacement && replacement!=peer && replacement!=mounted);
+    CHECK(volume_ops->query(mounted,&info)==IFS_FS_INVALID);
+    CHECK(core->unmount(replacement)==IFS_FS_OK);
     CHECK(close(image.fd)==0);
     puts("NTFS_COMMON_V2_REAL_NAMESPACE_PASS");
     return 0;
