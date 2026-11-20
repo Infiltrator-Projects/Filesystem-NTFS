@@ -17,6 +17,25 @@ typedef struct {
     NtfsLayout layout;
     uint64_t free_clusters;
 } MountedNtfs;
+/* Non-recycled tokens prevent stale pointers from being reused by subsequent
+ * mounts. The Common V2 host serializes lifecycle and callback invocations. */
+#define NTFS_V2_MAX_MOUNTS 32u
+static struct { uintptr_t token; MountedNtfs *volume; } mounted_sessions[NTFS_V2_MAX_MOUNTS];
+static uintptr_t next_mount_token;
+static MountedNtfs *find_volume(void *handle)
+{
+    const uintptr_t token=(uintptr_t)handle;
+    if (!token) return NULL;
+    for (size_t i=0u;i<NTFS_V2_MAX_MOUNTS;++i)
+        if (mounted_sessions[i].token==token) return mounted_sessions[i].volume;
+    return NULL;
+}
+static size_t free_session(void)
+{
+    for (size_t i=0u;i<NTFS_V2_MAX_MOUNTS;++i)
+        if (!mounted_sessions[i].token) return i;
+    return NTFS_V2_MAX_MOUNTS;
+}
 
 int ifs_ntfs_map_readonly(const IfsFsHostRuntimeV2 *host, const char *path,
                          uint64_t first, IfsFsExtentV2 *out,
@@ -70,7 +89,7 @@ static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
 }
 static int ntfs_volume_query(void *handle, IfsFsVolumeInfoV2 *info)
 {
-    return fill_volume(handle, info);
+    return fill_volume(find_volume(handle), info);
 }
 static unsigned popcount8(uint8_t bits)
 {
@@ -93,6 +112,9 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
      * until transactional V2 mutation and recovery have been qualified. */
     if (!(host->capabilities & IFS_FS_HOST_READ_ONLY))
         return IFS_FS_ACCESS;
+    const size_t session_index=free_session();
+    if (session_index==NTFS_V2_MAX_MOUNTS || next_mount_token==UINTPTR_MAX)
+        return IFS_FS_BUSY;
     uint32_t variant = 0u;
     int result = native_probe(host, &variant);
     if (result) return result;
@@ -140,14 +162,24 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
         host->release(host->context, volume);
         return result;
     }
-    *output = volume;
+    const uintptr_t token=++next_mount_token;
+    mounted_sessions[session_index].volume=volume;
+    mounted_sessions[session_index].token=token;
+    *output=(void *)token;
     return IFS_FS_OK;
 }
 static int native_unmount(void *handle)
 {
-    MountedNtfs *volume = handle;
+    MountedNtfs *volume=find_volume(handle);
     if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
-    IfsFsHostRuntimeV2 host = volume->host;
+    for (size_t i=0u;i<NTFS_V2_MAX_MOUNTS;++i) {
+        if (mounted_sessions[i].token==(uintptr_t)handle) {
+            mounted_sessions[i].token=0u;
+            mounted_sessions[i].volume=NULL;
+            break;
+        }
+    }
+    IfsFsHostRuntimeV2 host=volume->host;
     ntfs_layout_free(&volume->layout);
     ntfs_close_volume(&volume->media);
     host.release(host.context, volume);
@@ -157,7 +189,7 @@ static int native_unmount(void *handle)
 static int map_file(void *handle, const char *path, uint64_t first,
                     IfsFsExtentV2 *out, uint32_t capacity, uint32_t *written)
 {
-    const MountedNtfs *volume = handle;
+    const MountedNtfs *volume = find_volume(handle);
     if (!written)
         return IFS_FS_INVALID;
     *written = 0u;
@@ -182,21 +214,21 @@ static const IfsFsVolumeOpsV2 volume_ops = {
 
 static int stat_file(void *handle, const char *path, IfsFsEntryV2 *entry)
 {
-    const MountedNtfs *volume = handle;
+    const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
     return ifs_ntfs_stat_readonly_v2(&volume->host, path, entry);
 }
 static int list_file(void *handle, const char *path, uint32_t index,
                      IfsFsEntryV2 *entry)
 {
-    const MountedNtfs *volume = handle;
+    const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
     return ifs_ntfs_list_readonly_v2(&volume->host, path, index, entry);
 }
 static int read_file(void *handle, const char *path, uint64_t offset,
                      void *destination, uint32_t length)
 {
-    const MountedNtfs *volume = handle;
+    const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
     return ifs_ntfs_read_readonly_v2(&volume->host, path, offset,
                                     destination, length);
