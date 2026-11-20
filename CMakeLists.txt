@@ -120,6 +120,21 @@ if(BUILD_TESTING)
  target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
  target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-legacy-test-support SQLite::SQLite3)
  add_test(NAME ntfs-native-stream-index COMMAND ntfs-stream-index-test)
+
+ add_executable(ntfs-v2-namespace-test tests/test_ntfs_v2_namespace.c)
+ target_compile_definitions(ntfs-v2-namespace-test PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
+ target_compile_options(ntfs-v2-namespace-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+ target_include_directories(ntfs-v2-namespace-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${infiltratr_common_SOURCE_DIR}/include")
+ target_link_libraries(ntfs-v2-namespace-test PRIVATE ntfs-driver InfiltratrCommon::Common)
+ add_test(NAME ntfs-v2-real-media-namespace
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/ntfs-v2-namespace.sh"
+   "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}")
+ add_test(NAME ntfs-production-v2-only
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
+    "$<TARGET_FILE:ntfs-driver>")
+
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
  target_include_directories(ntfs-journal-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_link_libraries(ntfs-journal-test PRIVATE ntfs-legacy-test-support)
