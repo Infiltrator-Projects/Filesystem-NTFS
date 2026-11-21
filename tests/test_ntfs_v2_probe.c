@@ -66,13 +66,14 @@ int main(void) {
     CHECK(ifs_fs_host_v2_valid(&h));
     CHECK(core->mount(&h, &mounted, &info) != IFS_FS_OK && mounted == NULL);
     variant=54321; disk[13]=0;
-    CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT && variant==54321);
+    CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT && variant==0u);
     disk[13]=1;disk[64]=(uint8_t)-128;
-    CHECK(core->probe(&h,&variant)!=IFS_FS_OK && variant==54321);
+    CHECK(core->probe(&h,&variant)!=IFS_FS_OK && variant==0u);
     disk[64]=(uint8_t)-10;put64(disk+40,UINT64_MAX);
-    CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT);
+    CHECK(core->probe(&h,&variant)==IFS_FS_CORRUPT && variant==0u);
     put64(disk+40,128);h.maximum_transfer_bytes=0;
-    CHECK(core->probe(&h,&variant)==IFS_FS_INVALID);
+    variant=UINT32_MAX;
+    CHECK(core->probe(&h,&variant)==IFS_FS_INVALID && variant==0u);
     /* Common V2's canonical NTFS parser must reject impossible count and
      * malformed on-media records without the legacy fatal-error callback. */
     {
