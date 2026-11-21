@@ -6,13 +6,11 @@ import subprocess
 import tempfile
 
 import build
-import kernel
 import release
 
 parser = argparse.ArgumentParser()
 parser.add_argument("package", type=Path)
 parser.add_argument("--profile", choices=("portable", "aggressive"), required=True)
-parser.add_argument("--kernel-release")
 args = parser.parse_args()
 fields = dict(line.split(": ", 1) for line in subprocess.check_output(
     ["dpkg-deb", "-f", str(args.package)], text=True).splitlines() if ": " in line and not line.startswith(" "))
@@ -29,11 +27,7 @@ with tempfile.TemporaryDirectory(prefix="filesystem-package-check-") as temporar
     assert manual.read_bytes().startswith(b"%PDF-")
     assert fields["X-Infiltrator-Resource-SHA256"] == hashlib.sha256(module.read_bytes()).hexdigest()
     assert fields["X-Infiltrator-PDF-SHA256"] == hashlib.sha256(manual.read_bytes()).hexdigest()
-    if args.kernel_release:
-        binary = root / release.KERNEL_PATH
-        expected.add(binary)
-        for field, value in kernel.metadata(binary, args.kernel_release).items():
-            assert fields[field] == value
-    assert {path for path in root.rglob("*") if path.is_symlink() or not path.is_dir()} == expected
-    assert all(path.is_file() and not path.is_symlink() for path in expected)
+    actual = {path for path in root.rglob("*") if path.is_symlink() or not path.is_dir()}
+    if actual != expected or any(path.is_symlink() or not path.is_file() for path in expected):
+        raise ValueError("Unexpected or missing filesystem package payload")
 print("FILESYSTEM-PACKAGE-CONTENTS-PASS", build.REPO, args.profile)

@@ -155,9 +155,10 @@ def inspect(module):
     header = subprocess.check_output(["readelf", "-h", str(module)], text=True)
     if "DYN (Shared object file)" not in header or "Advanced Micro Devices X86-64" not in header:
         raise RuntimeError("Not an x86-64 shared object")
-    symbols = subprocess.check_output(["nm", "-D", str(module)], text=True)
-    if ABI not in [row.split()[-1] for row in symbols.splitlines() if row.split()]:
-        raise RuntimeError("Missing exact filesystem ABI " + ABI)
+    symbols = subprocess.check_output(["nm", "-D", "--defined-only", "--format=posix", str(module)], text=True)
+    exports = {line.split()[0].split("@", 1)[0] for line in symbols.splitlines() if line.strip()}
+    if exports != {ABI}:
+        raise RuntimeError(f"{NAME} must export only {ABI}, found {sorted(exports)}")
     dependencies(module)
 
 def test(module, workspace=None):
