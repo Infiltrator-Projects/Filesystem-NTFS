@@ -119,7 +119,19 @@ def source_files():
     # Historical driver-builder source stays in Git; the RUN only carries
     # the native V2 shared-library installer.
     excluded = {PDF, Path("standalone/kernel.py"), Path("standalone/kernel.json")}
-    return sorted(set(p for p in chosen if p not in excluded))
+    archive = set()
+    for path in chosen:
+        if path in excluded or (path.name == "filesystem_module.h" and path.parent.name == "infiltratr"):
+            continue
+        # Platform binding trees have separate entry points and build systems.
+        # The RUN compiles the shared engine and its Common V2 test fixtures.
+        if (path.parts[:2] == ("native", "filesystems") and len(path.parts) > 3
+                and path.parts[3] in ("linux", "efi", "windows")):
+            continue
+        if path.parts[:3] == ("native", "platform", "linux_kernel"):
+            continue
+        archive.add(path)
+    return sorted(archive)
 
 def create_run(path):
     with tempfile.TemporaryFile() as temp:
