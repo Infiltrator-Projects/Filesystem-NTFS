@@ -34,10 +34,27 @@ set_source_files_properties(formatter/mkntfs.c formatter/sd.c PROPERTIES
 target_link_libraries(ntfs-formatter PRIVATE InfiltratrCommon::Common)
 # The installed module contains the source-owned NTFS parser, Common V2
 # and a hosted read-only namespace. Retired V1 workers are test-only.
+set(NTFS_FIRMWARE_ELF "${CMAKE_CURRENT_BINARY_DIR}/firmware/NTFS.so")
+add_custom_command(OUTPUT "${NTFS_FIRMWARE_ELF}"
+ COMMAND "${CMAKE_COMMAND}" -S "${CMAKE_CURRENT_SOURCE_DIR}/module/firmware"
+   -B "${CMAKE_CURRENT_BINARY_DIR}/firmware" -DCMAKE_BUILD_TYPE=Release
+   "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}" "-DCOMMON_INCLUDE_DIR=${infiltratr_common_SOURCE_DIR}/include"
+ COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_CURRENT_BINARY_DIR}/firmware"
+ DEPENDS module/firmware/CMakeLists.txt module/firmware/runtime.c module/firmware/descriptor.c
+   native/ntfs_disk.c native/ntfs_disk.h
+   "${infiltratr_common_SOURCE_DIR}/include/infiltratr/filesystem_module_v2.h"
+ VERBATIM)
+add_custom_target(ntfs-firmware DEPENDS "${NTFS_FIRMWARE_ELF}")
 add_library(ntfs-driver SHARED
+ native/ntfs_disk.c
  native/ntfs_common.c native/ntfs_catalog.c
  module/ntfs_v2_probe.c module/ntfs_v2_map.c
  $<TARGET_OBJECTS:ntfs-formatter>)
+add_dependencies(ntfs-driver ntfs-firmware)
+set_property(TARGET ntfs-driver APPEND PROPERTY LINK_DEPENDS "${NTFS_FIRMWARE_ELF}")
+add_custom_command(TARGET ntfs-driver POST_BUILD
+ COMMAND "${CMAKE_OBJCOPY}" --add-section ".infiltrator_boot=${NTFS_FIRMWARE_ELF}"
+   --set-section-flags .infiltrator_boot=readonly "$<TARGET_FILE:ntfs-driver>" VERBATIM)
 set_target_properties(ntfs-driver PROPERTIES PREFIX "" OUTPUT_NAME "NTFS" SUFFIX ".so")
 target_compile_definitions(ntfs-driver PRIVATE _GNU_SOURCE _FILE_OFFSET_BITS=64)
 target_compile_options(ntfs-driver PRIVATE -Wall -Wextra -Wpedantic -Werror
@@ -56,6 +73,7 @@ if(BUILD_TESTING)
  # Historical native worker, Defragmenter adapter and fixture API are
  # retained for regression only; none is linked into shipped NTFS.so.
  add_library(ntfs-legacy-test-support SHARED
+  native/ntfs_disk.c
   native/ntfs_common.c native/ntfs_catalog.c
   native/ntfs_plan.c native/ntfs_plan_db.cpp native/ntfs_transaction.c
   native/ntfs_worker.c compat/legacy_services.c compat/runtime_alloc.c
@@ -133,6 +151,13 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-v2-real-media-namespace
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/ntfs-v2-namespace.sh"
    "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}" "${NTFS_MKFS_TOOL}")
+ add_executable(ntfs-disk-media tests/test_disk_media.c)
+ target_compile_options(ntfs-disk-media PRIVATE -Wall -Wextra -Wpedantic -Werror)
+ target_include_directories(ntfs-disk-media PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
+ target_link_libraries(ntfs-disk-media PRIVATE ${CMAKE_DL_LIBS})
+ add_test(NAME ntfs-native-disk-sectors
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/disk-media.sh"
+    "$<TARGET_FILE:ntfs-disk-media>" "$<TARGET_FILE:ntfs-v2-namespace-test>" "$<TARGET_FILE:ntfs-driver>")
  add_test(NAME ntfs-production-v2-only
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")

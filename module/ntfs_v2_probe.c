@@ -7,6 +7,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "ntfs_native.h"
+#include "ntfs_disk.h"
 #include "../formatter/format_device.h"
 /* The real NTFS MFT and $Bitmap readers run against Common V2 host I/O,
  * not a copied device path. Only a completely qualified, clean volume may
@@ -49,35 +50,6 @@ int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
                              const char *path, uint64_t offset,
                              void *destination, uint32_t length);
 
-static int native_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant)
-{
-    if (!variant)
-        return IFS_FS_INVALID;
-    *variant = 0u;
-    if (!ifs_fs_host_v2_valid(host))
-        return IFS_FS_INVALID;
-    const uint32_t sector = host->logical_sector_bytes;
-    uint8_t *raw = host->allocate(host->context, sector);
-    if (!raw) return IFS_FS_NO_MEMORY;
-    const int got = host->read_at(host->context, 0u, raw, sector);
-    const int signature = got == 0 && sector >= 512u &&
-        memcmp(raw + 3u, "NTFS    ", 8u) == 0 &&
-        raw[510u] == 0x55u && raw[511u] == 0xaau;
-    host->release(host->context, raw);
-    if (got != 0) return IFS_FS_IO_ERROR;
-    if (!signature) return IFS_FS_NOT_FOUND;
-    NtfsVolume media;
-    char *error = NULL;
-    if (ntfs_open_host(host, &media, &error) != 0) {
-        free(error);
-        return IFS_FS_CORRUPT;
-    }
-    ntfs_close_volume(&media);
-    free(error);
-    *variant = 1u;
-    return IFS_FS_OK;
-}
-
 static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
 {
     if (!volume || !info || info->structure_bytes < sizeof(*info) ||
@@ -119,7 +91,7 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
     if (session_index==NTFS_V2_MAX_MOUNTS || next_mount_token==UINTPTR_MAX)
         return IFS_FS_BUSY;
     uint32_t variant = 0u;
-    int result = native_probe(host, &variant);
+    int result = ntfs_disk_probe(host, &variant);
     if (result) return result;
     MountedNtfs *volume = host->allocate(host->context, sizeof(*volume));
     if (!volume) return IFS_FS_NO_MEMORY;
@@ -241,7 +213,7 @@ static const IfsFsCoreOpsV2 core = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),
                 IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE | IFS_FS_CORE_MOUNT |
                 IFS_FS_CORE_STAT | IFS_FS_CORE_LIST | IFS_FS_CORE_READ },
-    .probe = native_probe,
+    .probe = ntfs_disk_probe,
     .mount = native_mount,
     .unmount = native_unmount,
     .stat = stat_file,

@@ -5,9 +5,8 @@ Independent filesystem implementation for InfiltratorOS, using the shared Common
 
 - `/System/Filesystems/NTFS.so`
 - `/System/Resources/Documentation/Filesystem-NTFS.pdf`
-- `/System/Kernel/Filesystems/ntfs.ko`
 
-The published Debian package installs these three regular files. A manual native RUN compiles the shared object and Linux adapter locally, generates the PDF, and replaces all three files. It uses the running kernel headers by default. Use `--kernel-build DIRECTORY` for a prepared kernel build with `Module.symvers`. The kernel module is stored for manual use.
+The Debian and native installer candidates stage the Common V2 module and its manual. Release 1.0.18 also shipped a separate Linux module. New publication is gated on the firmware reader and qualification.
 
 InfiltratorOS calls `--system-package-mode` to build and install the native
 shared object and PDF. Use `--build-only --output DIRECTORY` to build a
@@ -29,4 +28,6 @@ FUSE-free NTFS runtime library. Common V2 also exposes read-only physical
 extent mapping for regular files. Sparse regions are gaps in the logical
 offsets. Resident data has no separate physical data extent. Compressed,
 encrypted and reparse-point files are outside the map contract. General
-namespace access, relocation and recovery through Common V2 remain pending.
+namespace access supports hosted read-only stat, directory enumeration and file reads. Relocation and recovery through Common V2 remain pending.
+
+The hosted and embedded freestanding profiles share the on-disk NTFS boot geometry probe. Read-only hosts can use 512-byte or 4 KiB transfer sectors independently of the formatted NTFS sector size. Native MFT torn-write protection checks every 512-byte interval, including inside a 4 KiB disk sector. The firmware profile currently advertises probe only.

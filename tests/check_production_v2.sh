@@ -14,8 +14,10 @@ if nm -a "$module" |
     echo "Retired V1 implementation included in production NTFS.so" >&2
     exit 1
 fi
-if readelf -SW "$module" | grep -F '.infiltrator_boot'; then
-    echo "Hosted NTFS.so must not fake firmware qualification" >&2
-    exit 1
-fi
+temp=$(mktemp -d)
+trap 'rm -rf "$temp"' EXIT
+objcopy --dump-section ".infiltrator_boot=$temp/ntfs.elf" "$module" "$temp/copy.so"
+test -s "$temp/ntfs.elf"
+test -z "$(nm -Du "$temp/ntfs.elf")"
+if readelf -dW "$temp/ntfs.elf" | grep '(NEEDED)' >/dev/null; then exit 1; fi
 echo NTFS_PRODUCTION_COMMON_V2_ONLY_PASS

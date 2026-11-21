@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ntfs_native.h"
+#include "ntfs_disk.h"
 
 #include "infiltratr/core.h"
 #include "infiltratr/arithmetic.h"
@@ -197,16 +198,15 @@ int ntfs_encode_single_run(uint64_t lcn, uint64_t length, uint8_t *output, size_
  */
 int ntfs_apply_fixups(const uint8_t *raw, size_t length, uint32_t sector_size,
                       uint8_t *fixed, char **error) {
-    if (sector_size == 0 || length % sector_size != 0) { ntfs_set_error(error, "invalid NTFS update-sequence geometry"); return -1; }
-    memcpy(fixed, raw, length);
-    uint16_t usa_off = ntfs_u16(fixed, 4), usa_count = ntfs_u16(fixed, 6);
-    size_t expected = length / sector_size + 1U;
-    if (usa_count != expected || (size_t)usa_off + (size_t)usa_count * 2U > length) {
-        ntfs_set_error(error, "invalid NTFS update-sequence array"); return -1;
+    uint16_t usa_off, usa_count;
+    if (!sector_size || !fixed || ntfs_disk_usa(raw, length, &usa_off, &usa_count)) {
+        ntfs_set_error(error, "invalid NTFS update-sequence geometry");
+        return -1;
     }
+    memcpy(fixed, raw, length);
     uint16_t usn = ntfs_u16(fixed, usa_off);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * sector_size;
+        size_t end = index * NTFS_MST_BYTES;
         if (ntfs_u16(fixed, end - 2U) != usn) { ntfs_set_error(error, "NTFS MFT update-sequence mismatch"); return -1; }
         ntfs_put_u16(fixed, end - 2U, ntfs_u16(fixed, usa_off + index * 2U));
     }
@@ -219,17 +219,16 @@ int ntfs_apply_fixups(const uint8_t *raw, size_t length, uint32_t sector_size,
  */
 int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_size,
                         uint8_t *raw, char **error) {
-    if (sector_size == 0 || length % sector_size != 0) { ntfs_set_error(error, "invalid NTFS update-sequence geometry"); return -1; }
-    memcpy(raw, fixed, length);
-    uint16_t usa_off = ntfs_u16(raw, 4), usa_count = ntfs_u16(raw, 6);
-    size_t expected = length / sector_size + 1U;
-    if (usa_count != expected || (size_t)usa_off + (size_t)usa_count * 2U > length) {
-        ntfs_set_error(error, "invalid NTFS update-sequence array"); return -1;
+    uint16_t usa_off, usa_count;
+    if (!sector_size || !raw || ntfs_disk_usa(fixed, length, &usa_off, &usa_count)) {
+        ntfs_set_error(error, "invalid NTFS update-sequence geometry");
+        return -1;
     }
+    memcpy(raw, fixed, length);
     uint16_t usn = (uint16_t)(ntfs_u16(raw, usa_off) + 1U); if (usn == 0) usn = 1;
     ntfs_put_u16(raw, usa_off, usn);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * sector_size;
+        size_t end = index * NTFS_MST_BYTES;
         ntfs_put_u16(raw, usa_off + index * 2U, ntfs_u16(raw, end - 2U));
         ntfs_put_u16(raw, end - 2U, usn);
     }
@@ -338,51 +337,20 @@ static int ntfs_init_boot_geometry(NtfsVolume *volume,
                                    const uint8_t boot[512],
                                    uint64_t device_bytes, char **error)
 {
-    const uint32_t bps = ntfs_u16(boot, 11), spc = boot[13];
-    if (bps < 256u || bps > 4096u || (bps & (bps - 1u)) ||
-        !spc || (spc & (spc - 1u))) {
-        ntfs_set_error(error, "invalid NTFS sector or cluster geometry");
-        return -1;
-    }
-    const uint32_t cluster = bps * spc;
-    if (cluster > 65536u) {
-        ntfs_set_error(error, "unsupported NTFS cluster size");
-        return -1;
-    }
-    const uint64_t sectors = ntfs_u64(boot, 40);
-    const uint64_t clusters = sectors / spc;
-    if (!sectors || clusters < 2u || sectors > device_bytes / bps) {
-        ntfs_set_error(error, "NTFS volume boundary exceeds target");
-        return -1;
-    }
-    const uint64_t mft = ntfs_u64(boot, 48);
-    const uint64_t mirror = ntfs_u64(boot, 56);
-    if (mft >= clusters || mirror >= clusters) {
-        ntfs_set_error(error, "NTFS MFT layout is outside device");
-        return -1;
-    }
-    const int8_t record_encoding = (int8_t)boot[64];
-    if (record_encoding < -20) {
-        ntfs_set_error(error, "unsupported NTFS MFT exponent");
-        return -1;
-    }
-    const uint64_t record_size = record_encoding < 0
-        ? (UINT64_C(1) << (unsigned)(-record_encoding))
-        : (uint64_t)(uint8_t)record_encoding * cluster;
-    if (record_size < 512u || record_size > UINT64_C(1048576) ||
-        record_size % bps) {
-        ntfs_set_error(error, "invalid NTFS MFT record size");
+    NtfsDiskGeometry disk;
+    if (ntfs_disk_geometry(boot, device_bytes, &disk) != IFS_FS_OK) {
+        ntfs_set_error(error, "invalid or unsupported NTFS boot geometry");
         return -1;
     }
     volume->device_size = device_bytes;
-    volume->volume_bytes = sectors * bps;
-    volume->bytes_per_sector = bps;
-    volume->sectors_per_cluster = spc;
-    volume->cluster_size = cluster;
-    volume->total_clusters = clusters;
-    volume->mft_lcn = mft;
-    volume->mftmirr_lcn = mirror;
-    volume->record_size = (uint32_t)record_size;
+    volume->volume_bytes = disk.volume_bytes;
+    volume->bytes_per_sector = disk.sector_bytes;
+    volume->sectors_per_cluster = disk.sectors_per_cluster;
+    volume->cluster_size = disk.cluster_bytes;
+    volume->total_clusters = disk.cluster_count;
+    volume->mft_lcn = disk.mft_lcn;
+    volume->mftmirr_lcn = disk.mirror_lcn;
+    volume->record_size = disk.record_bytes;
     memcpy(volume->serial, boot + 72, 8);
     return 0;
 }
@@ -406,7 +374,8 @@ int ntfs_open_host(const IfsFsHostRuntimeV2 *host,
     }
     if (ntfs_init_boot_geometry(volume, boot, host->volume_bytes, error))
         return -1;
-    if (volume->bytes_per_sector < host->logical_sector_bytes) {
+    if (!(host->capabilities & IFS_FS_HOST_READ_ONLY) &&
+        volume->bytes_per_sector < host->logical_sector_bytes) {
         ntfs_set_error(error, "NTFS sector geometry smaller than host sector");
         return -1;
     }

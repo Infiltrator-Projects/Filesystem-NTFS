@@ -48,11 +48,23 @@ jobs:
           test -s "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO"
           test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO.pdf"
           readelf -Ws "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -F "$FS_ABI"
+      - name: Exercise both packaged NTFS modules on independent 512-byte and 4Kn volumes
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends ntfs-3g ntfs-3g-dev
+          cmake -S . -B media-test -DCMAKE_BUILD_TYPE=Release
+          cmake --build media-test --parallel 2 --target ntfs-disk-media ntfs-v2-namespace-test
+          dpkg-deb -x dist/*.deb "$RUNNER_TEMP/portable"
+          for profile in portable installed; do
+            reader="$RUNNER_TEMP/$profile/System/Filesystems/NTFS.so"
+            bash tests/check_production_v2.sh "$reader"
+            # The linked namespace harness must load this exact extracted carrier.
+            LD_LIBRARY_PATH="$RUNNER_TEMP/$profile/System/Filesystems" \
+              bash tests/disk-media.sh media-test/ntfs-disk-media media-test/ntfs-v2-namespace-test "$reader"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: native-filesystem-release
           path: dist/*
           if-no-files-found: error
-  # No publication or kernel adapter while NTFS is hosted-only.
-  # Release gates will be restored when a real no-import firmware ELF,
-  # the production BOOT validator and OVMF kernel/initramfs reads pass.
+  # Publication requires qualified firmware namespace reads and the rebuilt BOOT.

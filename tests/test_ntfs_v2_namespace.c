@@ -11,11 +11,11 @@
 #include <sys/stat.h>
 #include <unistd.h>
 extern const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void);
-typedef struct { int fd; uint64_t bytes; } Image;
+typedef struct { int fd; uint64_t bytes; uint32_t sector; } Image;
 static int read_at(void *context,uint64_t offset,void *dst,uint32_t length)
 {
     Image *image=context;
-    if (!length || (offset%512u) || (length%512u) || length>4096u ||
+    if (!length || (offset%image->sector) || (length%image->sector) || length>4096u ||
         offset>image->bytes || length>image->bytes-offset)
         return IFS_FS_IO_ERROR;
     return pread(image->fd,dst,length,(off_t)offset)==(ssize_t)length ?
@@ -30,8 +30,8 @@ static void release(void *unused,void *p)
     return 1; } } while(0)
 int main(int argc,char **argv)
 {
-    if (argc!=4)return 2;
-    Image image={0};
+    if (argc!=4 && argc!=5)return 2;
+    Image image={.sector=argc==5 ? (uint32_t)strtoul(argv[4],NULL,10):512u};
     image.fd=open(argv[1],O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(image.fd>=0);
     struct stat metadata;
@@ -42,8 +42,8 @@ int main(int argc,char **argv)
         .structure_bytes=sizeof(IfsFsHostRuntimeV2),
         .capabilities=IFS_FS_HOST_READ_ONLY,
         .volume_bytes=image.bytes,
-        .logical_sector_bytes=512u,
-        .physical_sector_bytes=512u,
+        .logical_sector_bytes=image.sector,
+        .physical_sector_bytes=image.sector,
         .maximum_transfer_bytes=4096u,
         .context=&image,
         .read_at=read_at,.allocate=allocate,.release=release
@@ -70,6 +70,11 @@ int main(int argc,char **argv)
         return 0;
     }
     CHECK(core->probe(&host,&variant)==IFS_FS_OK && variant==1u);
+    if (!strcmp(argv[3],"--bad-mft")) {
+        CHECK(core->mount(&host,&mounted,&info)==IFS_FS_CORRUPT && !mounted);
+        CHECK(close(image.fd)==0);
+        return 0;
+    }
     CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK && mounted);
     void *peer=NULL;
     info.structure_bytes=sizeof(info);
