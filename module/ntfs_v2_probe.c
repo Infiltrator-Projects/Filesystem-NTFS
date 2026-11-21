@@ -51,7 +51,10 @@ int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
 
 static int native_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant)
 {
-    if (!variant || !ifs_fs_host_v2_valid(host))
+    if (!variant)
+        return IFS_FS_INVALID;
+    *variant = 0u;
+    if (!ifs_fs_host_v2_valid(host))
         return IFS_FS_INVALID;
     const uint32_t sector = host->logical_sector_bytes;
     uint8_t *raw = host->allocate(host->context, sector);
