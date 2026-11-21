@@ -40,7 +40,13 @@ int main(void) {
     h.maximum_transfer_bytes=512; h.context=disk;
     h.read_at=reader; h.allocate=allocate; h.release=release;
     uint32_t variant=54321;
-    CHECK(core->probe(&h,&variant)!=IFS_FS_OK && variant==54321);
+    {
+        IfsFsHostRuntimeV2 invalid_host=h;
+        invalid_host.abi_version=1u;
+        CHECK(core->probe(&invalid_host,&variant)==IFS_FS_INVALID && variant==0u);
+    }
+    variant=54321;
+    CHECK(core->probe(&h,&variant)==IFS_FS_NOT_FOUND && variant==0u);
     memcpy(disk+3u,"NTFS    ",8u);
     disk[510]=0x55;disk[511]=0xaa;
     disk[11]=0x00;disk[12]=0x02;disk[13]=1;
