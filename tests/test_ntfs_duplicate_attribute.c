@@ -73,5 +73,53 @@ int main(void)
                     NULL,&matched,&n)==IFS_FS_INVALID);
     CHECK(attribute(record,sizeof(record),NTFS_ATTR_DATA,
                     NULL,NULL,&n)==IFS_FS_INVALID);
+
+    /* This same native decoder now supplies the hosted Common V2
+     * DEFRAG.MAP group. Validate the complete mapping-pairs stream,
+     * partition bounds, sparse holes and pagination without a device. */
+    {
+        NtfsReadOnlyV2 v={0};
+        v.geometry.cluster_bytes=4096u;
+        v.geometry.cluster_count=100u;
+        uint8_t attr[80]={0};
+        IfsFsExtentV2 extents[3]={0};
+        uint32_t written=0u;
+        attr[8u]=1u;
+        store16(attr+32u,64u);
+        attr[64u]=0x11u;attr[65u]=3u;attr[66u]=2u;
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),12288u,0u,
+                          extents,3u,&written)==IFS_FS_OK);
+        CHECK(written==1u && extents[0].logical_offset==0u &&
+              extents[0].physical_offset==8192u &&
+              extents[0].length==12288u);
+        written=0u;
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),12288u,1u,
+                          extents,3u,&written)==IFS_FS_END &&
+              written==0u);
+
+        memset(attr+64u,0,sizeof(attr)-64u);
+        attr[64u]=1u;attr[65u]=1u; /* sparse VCN 0 */
+        attr[66u]=0x11u;attr[67u]=1u;attr[68u]=2u;
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),8192u,0u,
+                          extents,3u,&written)==IFS_FS_OK);
+        CHECK(written==1u && extents[0].logical_offset==4096u &&
+              extents[0].physical_offset==8192u &&
+              extents[0].length==4096u);
+
+        memset(attr+64u,0,sizeof(attr)-64u);
+        attr[64u]=0x11u;attr[65u]=1u;attr[66u]=200u;
+        written=0u;
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),4096u,0u,
+                          extents,3u,&written)==IFS_FS_CORRUPT &&
+              written==0u);
+        memset(attr+64u,0x11u,sizeof(attr)-64u);
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),4096u,0u,
+                          extents,3u,&written)==IFS_FS_CORRUPT &&
+              written==0u);
+        attr[8u]=0u;
+        CHECK(map_runs_v2(&v,attr,sizeof(attr),4096u,0u,
+                          extents,3u,&written)==IFS_FS_END &&
+              written==0u);
+    }
     return 0;
 }
