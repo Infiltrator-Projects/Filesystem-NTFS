@@ -184,6 +184,36 @@ int main(int argc,char **argv)
           entry.size_bytes==(uint64_t)initramfs.st_size);
     CHECK(verify_payload(core,mounted,"/kernel.img",argv[2])==0);
     CHECK(verify_payload(core,mounted,"/initramfs.img",initramfs_source)==0);
+    if(!firmware) {
+        /* DEFRAG.MAP must use the same native MFT runlist as CORE.READ,
+         * not a parallel NTFS-3G on-disk traversal. All returned addresses
+         * are physical, partition-relative and bounded by the host. */
+        const IfsFsDefragOpsV2 *defrag=(const void *)
+            ifs_fs_group_v2(api,IFS_FS_GROUP_DEFRAG);
+        CHECK(defrag && defrag->map &&
+              defrag->header.capabilities==IFS_FS_DEFRAG_MAP);
+        IfsFsExtentV2 extents[8]={0};
+        uint32_t mapped=0u;
+        CHECK(defrag->map(mounted,"/kernel.img",0u,extents,8u,&mapped)
+              ==IFS_FS_OK && mapped>0u && mapped<=8u);
+        for(uint32_t k=0u;k<mapped;++k) {
+            CHECK(extents[k].length>0u);
+            CHECK(extents[k].logical_offset<(uint64_t)source.st_size);
+            CHECK(extents[k].length<=
+                  (uint64_t)source.st_size-extents[k].logical_offset);
+            CHECK(extents[k].physical_offset<image.bytes);
+            CHECK(extents[k].length<=image.bytes-extents[k].physical_offset);
+            if(k)CHECK(extents[k].logical_offset>=
+                       extents[k-1u].logical_offset+extents[k-1u].length);
+        }
+        uint32_t next_page=0u;
+        int next_rc=defrag->map(mounted,"/kernel.img",mapped,extents,8u,
+                                &next_page);
+        CHECK(next_rc==IFS_FS_OK || (next_rc==IFS_FS_END && !next_page));
+        mapped=77u;
+        CHECK(defrag->map(mounted,"/missing.img",0u,extents,8u,&mapped)
+              ==IFS_FS_NOT_FOUND && mapped==0u);
+    }
     uint8_t expected_prefix[32]={0},actual[32]={0};
     int input=open(argv[2],O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(input>=0);
