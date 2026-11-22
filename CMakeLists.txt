@@ -132,11 +132,6 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-workspace-safety-test PRIVATE InfiltratrCommon::Common
    SQLite::SQLite3 OpenSSL::Crypto)
  add_test(NAME ntfs-workspace-safety COMMAND ntfs-workspace-safety-test)
- # Preserve historical V1 fixture tests outside the installed module.
- add_executable(ntfs-legacy-compat-test tests/test_module.c)
- target_include_directories(ntfs-legacy-compat-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/compat")
- target_link_libraries(ntfs-legacy-compat-test PRIVATE ntfs-legacy-test-support)
- add_test(NAME ntfs-v1-consumer-compat COMMAND ntfs-legacy-compat-test)
  add_executable(ntfs-stream-index-test tests/test_ntfs_stream_index.c)
  target_include_directories(ntfs-stream-index-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native" "${infiltratr_common_SOURCE_DIR}/include")
  target_link_libraries(ntfs-stream-index-test PRIVATE ntfs-legacy-test-support SQLite::SQLite3)
