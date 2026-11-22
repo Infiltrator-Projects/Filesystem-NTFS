@@ -121,5 +121,30 @@ int main(void)
                           extents,3u,&written)==IFS_FS_END &&
               written==0u);
     }
+
+    /* The authoritative $UpCase mapping is read from NTFS record 10,
+     * not a host libc locale. Case equality must include Latin-1 UTF-8
+     * filenames (CAFÉ vs Café) and reject overlong encodings. */
+    {
+        static uint8_t upcase[NTFS_UPCASE_TABLE_BYTES];
+        NtfsReadOnlyV2 v={0};
+        for(uint32_t i=0u;i<UINT32_C(65536);++i)
+            store16(upcase+2u*i,(uint16_t)i);
+        for(uint32_t i='a';i<='z';++i)
+            store16(upcase+2u*i,(uint16_t)(i-32u));
+        store16(upcase+2u*UINT32_C(0x00e9),UINT16_C(0x00c9));
+        v.upcase=upcase;
+        {
+            const char lower[]="Caf\xc3\xa9.bin";
+            const char upper[]="CAF\xc3\x89.BIN";
+            const char invalid[]="CA\xc0\x81";
+            CHECK(equal_name(&v,lower,sizeof(lower)-1u,upper,
+                             sizeof(upper)-1u)==1);
+            CHECK(equal_name(&v,lower,sizeof(lower)-1u,"CAFET.BIN",
+                             sizeof("CAFET.BIN")-1u)==0);
+            CHECK(equal_name(&v,invalid,sizeof(invalid)-1u,"CA",
+                             sizeof("CA")-1u)==-1);
+        }
+    }
     return 0;
 }
