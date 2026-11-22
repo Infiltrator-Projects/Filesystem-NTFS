@@ -84,11 +84,11 @@ def ntfs_build_inputs(directory, runtime):
     triplet = subprocess.check_output(
         ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"], text=True).strip()
     headers = root / "usr/include"
-    library = next((root / d / "libntfs-3g.so.89"
+    library = next((root / d / "libntfs-3g.a"
                     for d in (f"usr/lib/{triplet}", f"lib/{triplet}", "usr/lib", "lib")
-                    if (root / d / "libntfs-3g.so.89").is_file()), None)
+                    if (root / d / "libntfs-3g.a").is_file()), None)
     if not library or not (headers / "ntfs-3g/device.h").is_file():
-        raise RuntimeError("The extracted NTFS SDK is missing its headers or runtime library")
+        raise RuntimeError("The extracted NTFS SDK is missing its headers or static archive")
     extra = ["-DNTFS3G_INCLUDE_DIR=" + str(headers), "-DNTFS3G_LIBRARY=" + str(library),
              "-DCMAKE_SKIP_RPATH=ON"]
     for variable, tool in (("NTFS_LABEL_TOOL", "ntfslabel"), ("NTFS_FIX_TOOL", "ntfsfix"),
@@ -142,7 +142,9 @@ def dependencies(module):
                "ld-linux-x86-64.so.2": None, "libcrypto.so.3": "libssl3t64 | libssl3",
                "libsqlite3.so.0": "libsqlite3-0", "libstdc++.so.6": "libstdc++6",
                "libgcc_s.so.1": "libgcc-s1",
-               "libntfs-3g.so.89": "libntfs-3g89t64 | libntfs-3g89"}
+               # No NTFS-3G shared-library runtime requirement is permitted.}
+    if any("ntfs-3g" in lib.lower() or "fuse" in lib.lower() for lib in libs):
+        raise RuntimeError("NTFS.so must not depend on external NTFS-3G or FUSE runtimes")
     if libs - set(mapping):
         raise RuntimeError("Unexpected external filesystem runtime dependencies: " +
                            repr(sorted(libs - set(mapping))))
