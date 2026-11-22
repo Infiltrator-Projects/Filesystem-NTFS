@@ -11,8 +11,10 @@ typedef struct {
 int ntfs_disk_geometry(const uint8_t boot[512], uint64_t host_bytes, NtfsDiskGeometry *out);
 int ntfs_disk_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant);
 
-/* Multi-sector transfer protection uses 512-byte intervals, including on 4Kn.
- * The USA fits before the first protected tail and must not alias itself. */
+/* The NTFS update-sequence array protects each on-disk logical sector.
+ * A 4Kn FILE or INDEX record has one 4096-byte protected interval rather
+ * than eight 512-byte intervals; the USA stays before the first tail. */
 #define NTFS_MST_BYTES 512u
-int ntfs_disk_usa(const uint8_t *record, size_t length, uint16_t *offset, uint16_t *count);
+int ntfs_disk_usa(const uint8_t *record, size_t length, uint32_t sector_bytes,
+                  uint16_t *offset, uint16_t *count);
 #endif
