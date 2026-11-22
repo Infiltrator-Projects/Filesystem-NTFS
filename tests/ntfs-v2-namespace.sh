@@ -3,7 +3,7 @@
 set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test_app=$(realpath "${1:?Common V2 test executable required}")
-copy_tool=$(realpath "${2:?ntfscp required}")
+seed_tool=$(realpath "${2:?source-built NTFS fixture seeder required}")
 format_tool=$(realpath "${3:?Common V2 formatter test executable required}")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
@@ -14,8 +14,8 @@ initramfs="$work/bootfiles/initramfs"
 "$format_tool" "$image"
 # Real NTFS $MFT, allocation runlists and root directory index are used.
 test -s "$payload" && test -s "$initramfs"
-"$copy_tool" -f "$image" "$payload" kernel.img
-"$copy_tool" -f "$image" "$initramfs" initramfs.img
+"$seed_tool" "$image" "$payload" kernel.img
+"$seed_tool" "$image" "$initramfs" initramfs.img
 sha256sum "$image" > "$work/source.sha"
 "$test_app" "$image" "$payload" --read
 (cd "$work" && sha256sum -c source.sha)
