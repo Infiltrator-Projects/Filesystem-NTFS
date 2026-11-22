@@ -17,16 +17,23 @@ if readelf -dW reader.elf | grep '(NEEDED)' >/dev/null; then exit 1; fi
 bash "$script_dir/boot-file-fixtures.sh" "$work/bootfiles"
 kernel_source="$work/bootfiles/vmlinuz"
 initramfs_source="$work/bootfiles/initramfs"
-# The integrated Common V2 formatter currently creates 512-byte logical-sector volumes.
-# The host I/O layer is still exercised at both 512 and 4096 bytes below.
-for disk_sector in 512; do
-    "$format_tool" good.img
+# Independently create genuine 512-byte and 4096-byte logical-sector images
+# through the production NTFS.so Common V2 formatter, not external mkntfs.
+for disk_sector in 512 4096; do
+    rm -f good.img
+    if [ "$disk_sector" = 4096 ]; then
+        "$format_tool" good.img --sector-4096
+    else
+        "$format_tool" good.img
+    fi
     "$ntfscp_tool" -f good.img "$kernel_source" kernel.img
     "$ntfscp_tool" -f good.img "$initramfs_source" initramfs.img
     cp --sparse=always --reflink=auto good.img bad-mft.img
     cp --sparse=always --reflink=auto good.img bad-geometry.img
     cp --sparse=always --reflink=auto good.img dirty-volume.img
-    python3 - <<'MEDIA'
+    DISK_SECTOR="$disk_sector" python3 - <<'MEDIA'
+import os
+logical_sector=int(os.environ['DISK_SECTOR'])
 with open('good.img','rb') as f:
     b=f.read(512)
 sector=int.from_bytes(b[11:13],'little')
@@ -35,8 +42,8 @@ mft=int.from_bytes(b[48:56],'little')*cluster
 with open('bad-mft.img','r+b') as f:
     f.seek(mft)
     r=f.read(max(4096,sector)); assert r[:4]==b'FILE'
-    assert int.from_bytes(r[6:8],'little')==int.from_bytes(r[28:32],'little')//512+1
-    f.seek(mft+510); f.write(bytes([r[510]^1]))
+    assert int.from_bytes(r[6:8],'little')==int.from_bytes(r[28:32],'little')//logical_sector+1
+    f.seek(mft+logical_sector-2); f.write(bytes([r[logical_sector-2]^1]))
 with open('bad-geometry.img','r+b') as f:
     f.seek(56); f.write(b[48:56])
 # Locate the genuine resident $VOLUME_INFORMATION value in MFT record 3.
