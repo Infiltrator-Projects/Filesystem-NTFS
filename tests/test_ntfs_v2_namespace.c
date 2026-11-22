@@ -32,7 +32,7 @@ static void release(void *unused,void *p)
 int main(int argc,char **argv)
 {
     if (argc!=4 && argc!=5 && argc!=6)return 2;
-    Image image={.sector=argc==5 ? (uint32_t)strtoul(argv[4],NULL,10):512u};
+    Image image={.sector=argc>=5 ? (uint32_t)strtoul(argv[4],NULL,10):512u};
     image.fd=open(argv[1],O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(image.fd>=0);
     struct stat metadata;
@@ -125,12 +125,21 @@ int main(int argc,char **argv)
         }
     }
     CHECK(found==1 && ended);
+    /* The same independently formatted image contains two real boot payloads.
+     * Firmware must walk the directory and recover the initramfs bytes too. */
+    CHECK(core->stat(mounted,"/initramfs.img",&entry)==IFS_FS_OK &&
+          entry.type==IFS_FS_ENTRY_FILE &&
+          entry.size_bytes==(uint64_t)source.st_size);
     uint8_t expected[131072],actual[131072];
     int input=open(argv[2],O_RDONLY|O_CLOEXEC);
     CHECK(input>=0);
     CHECK(read(input,expected,(size_t)source.st_size)==source.st_size);
     CHECK(close(input)==0);
     CHECK(core->read(mounted,"/kernel.img",0u,actual,
+                     (uint32_t)source.st_size)==IFS_FS_OK);
+    CHECK(!memcmp(expected,actual,(size_t)source.st_size));
+    memset(actual,0,sizeof(actual));
+    CHECK(core->read(mounted,"/initramfs.img",0u,actual,
                      (uint32_t)source.st_size)==IFS_FS_OK);
     CHECK(!memcmp(expected,actual,(size_t)source.st_size));
     CHECK(core->read(mounted,"/kernel.img",5u,actual,17u)==IFS_FS_OK);
