@@ -20,16 +20,10 @@ not PLAN/EXECUTE/VERIFY/RECOVER; those write/recovery capabilities
 remain unavailable until the format's native transactional engine is
 migrated and interrupted writes are qualified.
 
-The Common V2 formatter now creates genuine 512-byte and 4096-byte
-logical-sector NTFS volumes through the same internal NTFS.so format entrypoint.
-The independent native 4Kn regression verifies aligned 4096-byte host writes,
-boot and backup sectors, native probing and mounting. The media suite exercises
-both formatted sector geometries and rejects MFT/update-sequence corruption.
+The Common V2 formatter now creates genuine 512-, 1024-, 2048- and 4096-byte logical-sector NTFS volumes through the same internal NTFS.so format entrypoint. Separate CTests validate each volume's boot and backup sectors, on-disk geometry, native probe and mount. The independently exercised 4Kn case uses real 4096-byte logical-sector media, not 512-byte substitution. The real-media suite also exercises 512-byte and 4096-byte volume geometries with both host I/O transfer sizes and rejects MFT/update-sequence corruption.
 The metadata reader honours the validated NTFS USA protected-unit count,
 including 512-byte MST subrecords within a 4096-byte logical sector. It does
-not substitute 512-byte media for the separate 4Kn coverage. The external
-mkntfs program is not used by these regressions; unrelated file-population
-and cross-validation tests still use external NTFS-3G utilities.
+not substitute 512-byte media for the separate 4Kn coverage. The regression suite uses Common V2 to format disposable test media and an in-repository, source-built C fixture helper to populate files. No NTFS-3G command-line filesystem utility is required. The tested NTFS-3G-derived helper functions are embedded from pinned upstream source with attribution; the shipped NTFS.so no longer links to the NTFS-3G or FUSE shared libraries. Build tools, system runtime libraries and the upstream source licence remain distinct from external filesystem utility dependencies.
 
 The repository's disposable real-media suite compares complete kernel
 and initramfs file bytes through hosted and extracted freestanding
@@ -38,8 +32,7 @@ bounds, paging, corrupt MFT records, dirty journal rejection, stale
 handles and nonmutation; and independently tests duplicate FILE
 attributes and truncated runlist denial.
 
-The **version in the source tree is 1.0.22**, following the previously
-published 1.0.21. This source is not a verified release until the
+The **version in the source tree is 1.0.23**, following the previously published 1.0.22. This source is not a verified release until the
 exact-main GitHub Actions build, portable Debian package, aggressive
 native RUN build and packaged-media tests all succeed and publish a
 new immutable release. Neither profile is currently accepted by a
