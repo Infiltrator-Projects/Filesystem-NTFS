@@ -8,7 +8,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev ntfs-3g-dev ntfs-3g cmake busybox-static cpio
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libsqlite3-dev ntfs-3g cmake busybox-static cpio autoconf automake libtool
+      - name: Embed exact NTFS formatter helper source for compilation
+        run: python3 -c 'from standalone import build; build.prepare_release_source()'
       - run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
       - run: cmake --build build --parallel 2
       - run: ctest --test-dir build --output-on-failure
@@ -28,6 +30,7 @@ jobs:
           ! nm -D --defined-only build/NTFS.so | grep -E 'infiltrator_filesystem_.*_v1|ifs_bind_services|ifs_ntfs_worker_main'
           ! nm -a build/NTFS.so | grep -E 'infiltrator_filesystem_ntfs_v1|ifs_bind_services|ifs_ntfs_worker_main'
           bash tests/check_production_v2.sh build/NTFS.so
+          ! readelf -d build/NTFS.so | grep -Ei 'NEEDED.*(ntfs-3g|fuse)'
           ! nm -D --defined-only build/NTFS.so | grep -E 'ntfs_(stage|verify|place|restore)_host_workspace'
 
       - name: Verify exactly one PDF per runtime SO
