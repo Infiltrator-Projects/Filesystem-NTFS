@@ -51,7 +51,7 @@ jobs:
       - name: Exercise both packaged NTFS modules on independent 512-byte and 4Kn volumes
         run: |
           set -euo pipefail
-          sudo apt-get install -y --no-install-recommends ntfs-3g ntfs-3g-dev
+          sudo apt-get install -y --no-install-recommends ntfs-3g ntfs-3g-dev busybox-static cpio
           cmake -S . -B media-test -DCMAKE_BUILD_TYPE=Release
           cmake --build media-test --parallel 2 --target ntfs-disk-media ntfs-v2-namespace-test
           dpkg-deb -x dist/*.deb "$RUNNER_TEMP/portable"
