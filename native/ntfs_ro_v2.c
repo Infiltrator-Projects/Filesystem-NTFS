@@ -72,14 +72,22 @@ static int fixup(uint8_t *p,uint32_t n,const char magic[4])
 static int attribute(const uint8_t *record,uint32_t n,uint32_t type,
                      const char *name,const uint8_t **out,uint32_t *length)
 {
+    if(!record || !out || !length)return IFS_FS_INVALID;
     if(n<48u || memcmp(record,"FILE",4u))return IFS_FS_CORRUPT;
+    const uint8_t *matched=NULL;
+    uint32_t matched_length=0u;
     uint32_t used=U32(record+24u),at=U16(record+20u);
     if(used>n || at<48u || at>=used || (at&7u))
         return IFS_FS_CORRUPT;
     while(at<=used-4u) {
         const uint8_t *a=record+at;
         uint32_t kind=U32(a);
-        if(kind==NTFS_ATTR_END)return IFS_FS_NOT_FOUND;
+        if(kind==NTFS_ATTR_END){
+            if(!matched)return IFS_FS_NOT_FOUND;
+            *out=matched;
+            *length=matched_length;
+            return IFS_FS_OK;
+        }
         uint32_t size=U32(a+4u);
         if(size<24u || (size&7u) || size>used-at)
             return IFS_FS_CORRUPT;
@@ -98,9 +106,13 @@ static int attribute(const uint8_t *record,uint32_t n,uint32_t type,
                         if(U16(a+noff+2u*i)!=(uint8_t)name[i])same=0;
                 }
                 if(same) {
-                    if(a[8u]>1u)return IFS_FS_CORRUPT;
-                    *out=a;*length=size;
-                    return IFS_FS_OK;
+                    if(a[8u]>1u || matched)return IFS_FS_CORRUPT;
+                    /* A matching attribute is not authoritative until the
+                     * complete terminated FILE chain is validated. Duplicate
+                     * unnamed streams and later malformed attributes must
+                     * not make the first record appear trustworthy. */
+                    matched=a;
+                    matched_length=size;
                 }
             }
         }
