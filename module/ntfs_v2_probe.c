@@ -40,18 +40,6 @@ static size_t free_session(void)
     return NTFS_V2_MAX_MOUNTS;
 }
 
-int ifs_ntfs_map_readonly(const IfsFsHostRuntimeV2 *host, const char *path,
-                         uint64_t first, IfsFsExtentV2 *out,
-                         uint32_t capacity, uint32_t *written);
-int ifs_ntfs_stat_readonly_v2(const IfsFsHostRuntimeV2 *host,
-                             const char *path, IfsFsEntryV2 *entry);
-int ifs_ntfs_list_readonly_v2(const IfsFsHostRuntimeV2 *host,
-                             const char *path, uint32_t index,
-                             IfsFsEntryV2 *entry);
-int ifs_ntfs_read_readonly_v2(const IfsFsHostRuntimeV2 *host,
-                             const char *path, uint64_t offset,
-                             void *destination, uint32_t length);
-
 static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
 {
     if (!volume || !info || info->structure_bytes < sizeof(*info) ||
@@ -184,10 +172,10 @@ static int map_file(void *handle, const char *path, uint64_t first,
     if (!written)
         return IFS_FS_INVALID;
     *written = 0u;
-    if (!volume || !out || !capacity ||
+    if (!volume || !volume->reader || !out || !capacity ||
         !(volume->host.capabilities & IFS_FS_HOST_READ_ONLY))
         return IFS_FS_INVALID;
-    return ifs_ntfs_map_readonly(&volume->host, path, first, out, capacity, written);
+    return ntfs_ro_map_v2(volume->reader, path, first, out, capacity, written);
 }
 
 static const IfsFsDefragOpsV2 defrag_ops = {
