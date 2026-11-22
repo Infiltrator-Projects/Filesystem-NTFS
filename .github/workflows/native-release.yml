@@ -48,6 +48,7 @@ jobs:
           test -s "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO"
           test -s "$RUNNER_TEMP/installed/System/Resources/Documentation/$FS_REPO.pdf"
           readelf -Ws "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -F "$FS_ABI"
+          ! readelf -d "$RUNNER_TEMP/installed/System/Filesystems/$FS_SO" | grep -Ei 'NEEDED.*(ntfs-3g|fuse)'
       - name: Exercise packaged NTFS modules with native-formatted media and 512/4096-byte host I/O
         run: |
           set -euo pipefail
@@ -106,8 +107,8 @@ jobs:
             (cd dist && sha256sum -- *.deb *.run > SHA256SUMS.txt)
             gh release create "$tag" dist/*.deb dist/*.run dist/SHA256SUMS.txt \
               --target "$GITHUB_SHA" \
-              --title "NTFS Common V2 native 512e/4Kn formatter and read-only reader $version" \
-              --notes "Native Common V2 NTFS formatter and read-only hosted/freestanding readers. Packaged .deb and .run have passed separate genuine 512-byte and 4096-byte logical-sector volume format, probe and mount regressions. Both media geometries pass kernel/initramfs reads using 512-byte and 4096-byte host I/O, MFT/checksum and dirty-volume negative tests, with unchanged source media. No external NTFS formatter or file-copy executable was invoked. No V1 public export or .ko asset; firmware profile is import-free. Hosted CORE and DEFRAG.MAP now use the same native NTFS reader as the embedded freestanding ELF; actual future BOOT V2/OVMF handoff is not yet qualified."
+              --title "NTFS Common V2 native 512/1024/2048/4096-sector formatter $version" \
+              --notes "Native Common V2 NTFS formatter and read-only hosted/freestanding readers. Packaged .deb and .run have passed separate genuine 512-, 1024-, 2048- and 4096-byte logical-sector volume format, probe and mount regressions. Both media geometries pass kernel/initramfs reads using 512-byte and 4096-byte host I/O, MFT/checksum and dirty-volume negative tests, with unchanged source media. No external NTFS filesystem utility or NTFS-3G/FUSE runtime was required; the original licensed NTFS helper source is embedded and compiled into the shared object. No V1 public export or .ko asset; firmware profile is import-free. Hosted CORE and DEFRAG.MAP now use the same native NTFS reader as the embedded freestanding ELF; actual future BOOT V2/OVMF handoff is not yet qualified."
           fi
           mkdir -p "$RUNNER_TEMP/released"
           gh release download "$tag" -p '*.deb' -p '*.run' --dir "$RUNNER_TEMP/released"
