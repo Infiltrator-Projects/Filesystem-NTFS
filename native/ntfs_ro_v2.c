@@ -19,6 +19,7 @@
 #define U64(p) infiltratr_load_le64(p)
 #define NTFS_ATTR_LIST 0x20u
 #define NTFS_ATTR_DATA 0x80u
+#define NTFS_ATTR_VOLUME_INFORMATION 0x70u
 #define NTFS_ATTR_INDEX_ROOT 0x90u
 #define NTFS_ATTR_INDEX_ALLOCATION 0xa0u
 #define NTFS_ATTR_REPARSE 0xc0u
@@ -254,6 +255,26 @@ static int record_load(NtfsReadOnlyV2 *v,uint64_t reference,uint8_t **output)
     *output=p;
     return IFS_FS_OK;
 }
+/* A dirty, inconsistent or journal-replay-required NTFS volume must
+ * not masquerade as a clean boot source. The $VOLUME information stream
+ * is resident and flags are stored at the native NTFS offset, not in BPB. */
+static int volume_clean(NtfsReadOnlyV2 *v)
+{
+    uint8_t *record=NULL;
+    int rc=record_load(v,NTFS_VOLUME_RECORD,&record);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint8_t *attr=NULL,*data=NULL;
+    uint32_t size=0u,length=0u;
+    rc=attribute(record,v->geometry.record_bytes,
+                 NTFS_ATTR_VOLUME_INFORMATION,NULL,&attr,&size);
+    if(rc==IFS_FS_OK)rc=resident(attr,size,&data,&length);
+    if(rc==IFS_FS_OK) {
+        if(length<12u)rc=IFS_FS_CORRUPT;
+        else if(U16(data+10u)&0xc037u)rc=IFS_FS_UNSUPPORTED;
+    } else if(rc==IFS_FS_NOT_FOUND)rc=IFS_FS_CORRUPT;
+    drop(v,record);
+    return rc;
+}
 static int file_data(NtfsReadOnlyV2 *v,const uint8_t *record,
                      const uint8_t **attr,uint32_t *size,uint64_t *length)
 {
@@ -449,6 +470,13 @@ static int resolve(NtfsReadOnlyV2 *v,const char *path,
         int rc=record_load(v,current,&dir);
         if(rc!=IFS_FS_OK)return rc;
         if(!(U16(dir+22u)&2u)) {drop(v,dir);return IFS_FS_NOT_FOUND;}
+        const uint8_t *reparse=NULL;uint32_t reparse_bytes=0u;
+        rc=attribute(dir,v->geometry.record_bytes,NTFS_ATTR_REPARSE,
+                     NULL,&reparse,&reparse_bytes);
+        if(rc!=IFS_FS_NOT_FOUND) {
+            drop(v,dir);
+            return rc==IFS_FS_OK?IFS_FS_UNSUPPORTED:rc;
+        }
         Search search={0};
         search.wanted=start;search.wanted_length=length;
         rc=index_find(v,dir,&search);
@@ -572,6 +600,7 @@ int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *host,
             drop(v,root);
         }
     }
+    if(rc==IFS_FS_OK)rc=volume_clean(v);
     if(rc==IFS_FS_OK)rc=bitmap_free(v,&v->free_clusters);
     if(rc!=IFS_FS_OK) {ntfs_ro_close_v2(v);return rc;}
     *info=(IfsFsVolumeInfoV2){
@@ -619,6 +648,13 @@ int ntfs_ro_list_v2(NtfsReadOnlyV2 *v,const char *path,
     rc=record_load(v,record,&dir);
     if(rc!=IFS_FS_OK)return rc;
     if(!(U16(dir+22u)&2u)){drop(v,dir);return IFS_FS_INVALID;}
+    const uint8_t *reparse=NULL;uint32_t reparse_bytes=0u;
+    rc=attribute(dir,v->geometry.record_bytes,NTFS_ATTR_REPARSE,
+                 NULL,&reparse,&reparse_bytes);
+    if(rc!=IFS_FS_NOT_FOUND) {
+        drop(v,dir);
+        return rc==IFS_FS_OK?IFS_FS_UNSUPPORTED:rc;
+    }
     Search search={0};search.index=index;
     rc=index_find(v,dir,&search);
     drop(v,dir);
@@ -638,6 +674,13 @@ int ntfs_ro_read_v2(NtfsReadOnlyV2 *v,const char *path,
     if(rc!=IFS_FS_OK)return rc;
     if(U16(record+22u)&2u)rc=IFS_FS_INVALID;
     else {
+        const uint8_t *reparse=NULL;uint32_t reparse_bytes=0u;
+        rc=attribute(record,v->geometry.record_bytes,NTFS_ATTR_REPARSE,
+                     NULL,&reparse,&reparse_bytes);
+        if(rc!=IFS_FS_NOT_FOUND) {
+            drop(v,record);
+            return rc==IFS_FS_OK?IFS_FS_UNSUPPORTED:rc;
+        }
         const uint8_t *attr;uint32_t size;uint64_t length;
         rc=file_data(v,record,&attr,&size,&length);
         if(rc==IFS_FS_OK)rc=stream_read(v,attr,size,offset,out,n);
