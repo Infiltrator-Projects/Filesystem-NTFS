@@ -16,6 +16,7 @@ for disk_sector in 512 4096; do
     truncate -s 64M good.img
     mkntfs -F -Q -s "$disk_sector" good.img >/dev/null
     ntfscp -f good.img source kernel.img
+    ntfscp -f good.img source initramfs.img
     cp --sparse=always --reflink=auto good.img bad-mft.img
     cp --sparse=always --reflink=auto good.img bad-geometry.img
     python3 - <<'MEDIA'
