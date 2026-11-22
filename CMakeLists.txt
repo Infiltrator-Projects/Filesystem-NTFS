@@ -162,6 +162,19 @@ if(BUILD_TESTING)
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")
 
+ # Validate the native FILE attribute decoder shared by the hosted and
+ # freestanding Common V2 provider. The real-image V2 test above stays
+ # mandatory and cannot be replaced by this corruption micro-regression.
+ add_executable(ntfs-v2-duplicate-attribute-test
+   tests/test_ntfs_duplicate_attribute.c native/ntfs_disk.c)
+ target_include_directories(ntfs-v2-duplicate-attribute-test PRIVATE
+   "${CMAKE_CURRENT_SOURCE_DIR}/native"
+   "${infiltratr_common_SOURCE_DIR}/include")
+ target_compile_options(ntfs-v2-duplicate-attribute-test PRIVATE
+   -Wall -Wextra -Wpedantic -Werror)
+ add_test(NAME ntfs-v2-duplicate-attribute-rejection
+   COMMAND ntfs-v2-duplicate-attribute-test)
+
  add_executable(ntfs-journal-test tests/test_ntfs_journal.c)
  target_include_directories(ntfs-journal-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_link_libraries(ntfs-journal-test PRIVATE ntfs-legacy-test-support)
