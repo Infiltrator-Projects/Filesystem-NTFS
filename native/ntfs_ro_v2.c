@@ -651,7 +651,9 @@ static int map_runs_v2(NtfsReadOnlyV2 *v,const uint8_t *attr,uint32_t size,
                        IfsFsExtentV2 *out,uint32_t capacity,uint32_t *written)
 {
     const uint32_t cluster=v->geometry.cluster_bytes;
-    if(!cluster || size<64u || attr[8u]!=1u)return IFS_FS_UNSUPPORTED;
+    if(!cluster || size<24u)return IFS_FS_CORRUPT;
+    if(!logical_bytes || attr[8u]==0u)return IFS_FS_END;
+    if(size<64u || attr[8u]!=1u)return IFS_FS_UNSUPPORTED;
     const uint64_t needed=logical_bytes/cluster+
                           (logical_bytes%cluster!=0u);
     if(!needed)return IFS_FS_END;
@@ -698,8 +700,8 @@ static int map_runs_v2(NtfsReadOnlyV2 *v,const uint8_t *attr,uint32_t size,
             if(delta_bytes && vcn<needed) {
                 const uint64_t logical=vcn*(uint64_t)cluster;
                 const uint64_t remaining=logical_bytes-logical;
-                uint64_t length=clusters*(uint64_t)cluster;
                 if(clusters>UINT64_MAX/cluster)return IFS_FS_CORRUPT;
+                uint64_t length=clusters*(uint64_t)cluster;
                 if(length>remaining)length=remaining;
                 if(pass && page>=first && produced<capacity) {
                     out[produced++]=(IfsFsExtentV2){
