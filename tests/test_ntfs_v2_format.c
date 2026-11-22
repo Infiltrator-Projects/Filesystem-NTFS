@@ -546,7 +546,7 @@ int main(int argc, char **argv)
     memset(long_label, 'x', sizeof(long_label) - 1u);
     long_label[sizeof(long_label) - 1u] = '\0';
     CHECK(volume->format(&host, 1u, long_label, 0u) == IFS_FS_INVALID);
-    host.logical_sector_bytes = 2048u;
+    host.logical_sector_bytes = 8192u;
     CHECK(volume->format(&host, 1u, NULL, 0u) == IFS_FS_UNSUPPORTED);
     host.logical_sector_bytes = SECTOR;
     CHECK(image.writes == 0 && image.flushes == 0);
