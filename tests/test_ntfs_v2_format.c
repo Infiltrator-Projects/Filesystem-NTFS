@@ -441,13 +441,13 @@ done:
     return status;
 }
 
-/* Independent real 4Kn volume: the same Common V2 production formatter
- * creates the media, and the native reader must mount its 4096-byte FILE
- * records. No external disk formatter and no logical-sector substitution. */
-static int check_4kn_format(const char *path)
+/* Independent real-sector volume: Common V2 formats the media and the
+ * native reader must mount the genuine logical-sector geometry. Separate
+ * 512-byte and 4Kn regressions remain mandatory. */
+static int check_sector_format(const char *path, uint32_t sector_bytes)
 {
     Image image = {.fd = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600),
-                   .sector_bytes = 4096u};
+                   .sector_bytes = sector_bytes};
     if (image.fd < 0) return 2;
     int result = 1;
     const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
@@ -459,19 +459,19 @@ static int check_4kn_format(const char *path)
     IfsFsHostRuntimeV2 host = {
         .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
         .capabilities = IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE,
-        .volume_bytes = IMAGE_BYTES, .logical_sector_bytes = 4096u,
+        .volume_bytes = IMAGE_BYTES, .logical_sector_bytes = sector_bytes,
         .physical_sector_bytes = 4096u, .maximum_transfer_bytes = 4096u,
         .context = &image, .read_at = read_at, .write_at = write_at,
         .flush = flush, .allocate = allocate, .release = release,
     };
-    CHECK(volume->format(&host, 1u, "Native 4Kn", 0u) == IFS_FS_OK);
+    CHECK(volume->format(&host, 1u, "Native geometry", 0u) == IFS_FS_OK);
     CHECK(image.writes > 0u && image.flushes > 0u);
     uint8_t primary[4096], backup[4096];
-    CHECK(read_at(&image, 0, primary, sizeof(primary)) == 0);
-    CHECK(read_at(&image, IMAGE_BYTES - sizeof(backup), backup, sizeof(backup)) == 0);
-    CHECK(memcmp(primary, backup, sizeof(primary)) == 0);
+    CHECK(read_at(&image, 0, primary, sector_bytes) == 0);
+    CHECK(read_at(&image, IMAGE_BYTES - sector_bytes, backup, sector_bytes) == 0);
+    CHECK(memcmp(primary, backup, sector_bytes) == 0);
     CHECK(primary[510] == 0x55u && primary[511] == 0xaau);
-    CHECK(primary[11] == 0x00u && primary[12] == 0x10u);
+    CHECK(primary[11] == (uint8_t)sector_bytes && primary[12] == (uint8_t)(sector_bytes >> 8));
     IfsFsHostRuntimeV2 reader = host;
     reader.capabilities = IFS_FS_HOST_READ_ONLY;
     reader.write_at = NULL;
@@ -487,15 +487,15 @@ static int check_4kn_format(const char *path)
         char *error = NULL;
         int opened = ntfs_open_host(&reader, &media, &error);
         int laid_out = opened ? -1 : ntfs_read_layout(&media, false, &layout, &error);
-        fprintf(stderr, "4Kn mount=%d, native_open=%d, native_layout=%d, reason=%s\n",
-                mount_result, opened, laid_out, error ? error : "(none)");
+        fprintf(stderr, "sector=%u mount=%d, native_open=%d, native_layout=%d, reason=%s\n",
+                sector_bytes, mount_result, opened, laid_out, error ? error : "(none)");
         free(error);
         ntfs_layout_free(&layout);
         ntfs_close_volume(&media);
     }
     CHECK(mount_result == IFS_FS_OK);
     CHECK(info.variant == 1u && info.block_bytes == 4096u &&
-          info.total_bytes == IMAGE_BYTES - 4096u);
+          info.total_bytes == IMAGE_BYTES - sector_bytes);
     CHECK(core->unmount(mounted) == IFS_FS_OK);
     result = 0;
 done:
@@ -506,8 +506,13 @@ done:
 
 int main(int argc, char **argv)
 {
-    if (argc == 3 && strcmp(argv[2], "--sector-4096") == 0)
-        return check_4kn_format(argv[1]);
+    if (argc == 3 &&
+        (!strcmp(argv[2], "--sector-1024") ||
+         !strcmp(argv[2], "--sector-2048") ||
+         !strcmp(argv[2], "--sector-4096"))) {
+        const uint32_t sector_bytes = (uint32_t)strtoul(argv[2] + 9, NULL, 10);
+        return check_sector_format(argv[1], sector_bytes);
+    }
     if (argc == 3) return check_map(argv[1], argv[2]);
     if (argc != 2) return 2;
     if (check_workspace_map() != 0) return 1;
