@@ -31,11 +31,13 @@
 #define NTFS_ROOT_RECORD 5u
 #define NTFS_VOLUME_RECORD 3u
 #define NTFS_BITMAP_RECORD 6u
+#define NTFS_UPCASE_RECORD 10u
+#define NTFS_UPCASE_TABLE_BYTES (UINT32_C(65536) * 2u)
 
 struct NtfsReadOnlyV2 {
     IfsFsHostRuntimeV2 host;
     NtfsDiskGeometry geometry;
-    uint8_t *mft;
+    uint8_t *mft, *upcase;
     uint64_t mft_length;
     uint64_t free_clusters;
 };
@@ -570,6 +572,40 @@ static int bitmap_free(NtfsReadOnlyV2 *v,uint64_t *free_clusters)
     *free_clusters=total-used;
     return IFS_FS_OK;
 }
+/* NTFS uses its on-disk $UpCase system file to compare catalogue names.
+ * ASCII-only folding is incorrect even for ordinary names such as café:
+ * the volume's own UTF-16 mapping, not the build host's locale, is
+ * authoritative. Read it through the same native MFT and Common V2 I/O.
+ * Refuse incomplete/nonstandard tables rather than guessing case rules. */
+static int upcase_load(NtfsReadOnlyV2 *v)
+{
+    uint8_t *record=NULL;
+    int rc=record_load(v,NTFS_UPCASE_RECORD,&record);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint8_t *attr=NULL;
+    uint32_t attr_bytes=0u;
+    uint64_t length=0u;
+    rc=file_data(v,record,&attr,&attr_bytes,&length);
+    if(rc==IFS_FS_OK && length!=NTFS_UPCASE_TABLE_BYTES)
+        rc=IFS_FS_UNSUPPORTED;
+    if(rc==IFS_FS_OK) {
+        v->upcase=take(v,NTFS_UPCASE_TABLE_BYTES);
+        if(!v->upcase)rc=IFS_FS_NO_MEMORY;
+    }
+    if(rc==IFS_FS_OK)
+        rc=stream_read(v,attr,attr_bytes,0u,v->upcase,
+                       NTFS_UPCASE_TABLE_BYTES);
+    if(rc==IFS_FS_OK) {
+        /* The simplest immutable invariants catch zeroed, truncated and
+         * byte-swapped table data without hardcoding any locale mapping. */
+        if(U16(v->upcase+2u*(unsigned)'A')!='A' ||
+           U16(v->upcase+2u*(unsigned)'a')!='A' ||
+           U16(v->upcase+2u*(unsigned)'0')!='0')
+            rc=IFS_FS_CORRUPT;
+    }
+    drop(v,record);
+    return rc;
+}
 int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *host,
                     NtfsReadOnlyV2 **output,IfsFsVolumeInfoV2 *info)
 {
@@ -613,6 +649,7 @@ int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *host,
         }
     }
     if(rc==IFS_FS_OK)rc=volume_clean(v);
+    if(rc==IFS_FS_OK)rc=upcase_load(v);
     if(rc==IFS_FS_OK)rc=bitmap_free(v,&v->free_clusters);
     if(rc!=IFS_FS_OK) {ntfs_ro_close_v2(v);return rc;}
     *info=(IfsFsVolumeInfoV2){
@@ -627,6 +664,7 @@ int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *host,
 void ntfs_ro_close_v2(NtfsReadOnlyV2 *v)
 {
     if(!v)return;
+    drop(v,v->upcase);
     drop(v,v->mft);
     drop(v,v);
 }
