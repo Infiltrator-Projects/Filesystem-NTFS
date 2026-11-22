@@ -480,7 +480,20 @@ static int check_4kn_format(const char *path)
     CHECK(core->probe(&reader, &variant) == IFS_FS_OK && variant == 1u);
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
     void *mounted = NULL;
-    CHECK(core->mount(&reader, &mounted, &info) == IFS_FS_OK);
+    const int mount_result = core->mount(&reader, &mounted, &info);
+    if (mount_result != IFS_FS_OK) {
+        NtfsVolume media = {.fd = -1};
+        NtfsLayout layout = {0};
+        char *error = NULL;
+        int opened = ntfs_open_host(&reader, &media, &error);
+        int laid_out = opened ? -1 : ntfs_read_layout(&media, false, &layout, &error);
+        fprintf(stderr, "4Kn mount=%d, native_open=%d, native_layout=%d, reason=%s\n",
+                mount_result, opened, laid_out, error ? error : "(none)");
+        free(error);
+        ntfs_layout_free(&layout);
+        ntfs_close_volume(&media);
+    }
+    CHECK(mount_result == IFS_FS_OK);
     CHECK(info.variant == 1u && info.block_bytes == 4096u &&
           info.total_bytes == IMAGE_BYTES - 4096u);
     CHECK(core->unmount(mounted) == IFS_FS_OK);
