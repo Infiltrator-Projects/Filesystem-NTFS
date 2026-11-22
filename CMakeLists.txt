@@ -153,7 +153,8 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-disk-media PRIVATE ${CMAKE_DL_LIBS})
  add_test(NAME ntfs-native-disk-sectors
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/disk-media.sh"
-    "$<TARGET_FILE:ntfs-disk-media>" "$<TARGET_FILE:ntfs-v2-namespace-test>" "$<TARGET_FILE:ntfs-driver>")
+    "$<TARGET_FILE:ntfs-disk-media>" "$<TARGET_FILE:ntfs-v2-namespace-test>" "$<TARGET_FILE:ntfs-driver>"
+    "${NTFS_MKFS_TOOL}" "${NTFS_COPY_TOOL}")
  add_test(NAME ntfs-production-v2-only
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")
