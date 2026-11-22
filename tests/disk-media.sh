@@ -77,6 +77,7 @@ MEDIA
         done
         "$hosted" good.img "$kernel_source" --read "$host_sector"
         "$hosted" bad-mft.img "$kernel_source" --bad-mft "$host_sector"
+        "$hosted" dirty-volume.img "$kernel_source" --dirty-volume "$host_sector"
         "$hosted" good.img "$kernel_source" --read "$host_sector" "$work/reader.elf"
         "$hosted" bad-mft.img "$kernel_source" --bad-mft "$host_sector" "$work/reader.elf"
         "$hosted" dirty-volume.img "$kernel_source" --dirty-volume "$host_sector" "$work/reader.elf"
