@@ -16,6 +16,8 @@ REPO, NAME, PDF, ABI = (CONFIG[k] for k in ("repository", "module", "pdf", "abi"
 PDF = Path(PDF)
 KIND = CONFIG["build_system"]
 ENGINE = CONFIG.get("backend_revision")
+NTFS_HELPERS_REV = "78414d93613532fd82f3a82aba5d4a1c32898781"
+NTFS_HELPERS = ROOT / "vendor/ntfs-3g"
 SLUG = REPO.lower()
 PACKAGE = "infiltrator-" + SLUG
 if (not re.fullmatch(r"Filesystem-[A-Za-z0-9]+", REPO) or
@@ -47,27 +49,28 @@ def ntfs_runtime_package():
 
 def install_deps():
     packages = ("build-essential", "binutils", "cmake", "git", "pkg-config",
-                "libssl-dev", "libsqlite3-dev", "dpkg-dev")
+                "libssl-dev", "libsqlite3-dev", "dpkg-dev",
+                "autoconf", "automake", "libtool")
     tools = ("cc", "c++", "make", "cmake", "git", "readelf", "nm",
              "dpkg-deb", "dpkg-query", "dpkg-architecture", "pkg-config", "ctest")
     prefix = [] if os.geteuid() == 0 else ["sudo"]
     apt = [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=-1"]
     runtime = ntfs_runtime_package()
-    if not runtime or not all(installed(p) for p in (*packages, runtime)) or any(
+    if not runtime or not all(installed(p) for p in packages) or any(
             shutil.which(cmd) is None for cmd in tools):
         run([*apt, "update"])
         runtime = ntfs_runtime_package()
         if not runtime:
             raise RuntimeError("The distribution does not provide libntfs-3g.so.89")
-        run([*apt, "install", "-y", "--no-install-recommends", *packages, runtime])
+        run([*apt, "install", "-y", "--no-install-recommends", *packages])
     return runtime
 
 def ntfs_build_inputs(directory, runtime):
-    # Debian-family development and command packages depend on FUSE. APT
-    # authenticates their archives, then dpkg-deb extracts them in build
-    # scratch. Only the FUSE-free library package is installed on the host.
+    # External NTFS test programs are still extracted in disposable build
+    # scratch. The formatter itself links only the pinned, source-built,
+    # position-independent helper archive shipped in the source RUN.
     directory.mkdir()
-    packages = ("ntfs-3g-dev", "ntfs-3g", runtime)
+    packages = ("ntfs-3g", runtime)
     command = ["apt-get", "-o", "Acquire::Retries=3", "download", *packages]
     try:
         run(command, cwd=directory)
@@ -83,14 +86,12 @@ def ntfs_build_inputs(directory, runtime):
         run(["dpkg-deb", "-x", archives[0], root])
     triplet = subprocess.check_output(
         ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"], text=True).strip()
-    headers = root / "usr/include"
     library = next((root / d / "libntfs-3g.so.89"
                     for d in (f"usr/lib/{triplet}", f"lib/{triplet}", "usr/lib", "lib")
                     if (root / d / "libntfs-3g.so.89").is_file()), None)
-    if not library or not (headers / "ntfs-3g/device.h").is_file():
-        raise RuntimeError("The extracted NTFS SDK is missing its headers or runtime library")
-    extra = ["-DNTFS3G_INCLUDE_DIR=" + str(headers), "-DNTFS3G_LIBRARY=" + str(library),
-             "-DCMAKE_SKIP_RPATH=ON"]
+    if not library:
+        raise RuntimeError("Disposable NTFS test fixture runtime unavailable")
+    extra = ["-DCMAKE_SKIP_RPATH=ON"]
     for variable, tool in (("NTFS_COPY_TOOL", "ntfscp"),):
         found = next((root / d / tool for d in ("usr/bin", "usr/sbin", "bin", "sbin")
                       if (root / d / tool).is_file()), None)
@@ -104,6 +105,22 @@ def ntfs_build_inputs(directory, runtime):
 
 def prepare_release_source():
     if not ENGINE:
+        marker = NTFS_HELPERS / "SOURCE-REVISION"
+        if marker.is_file():
+            if marker.read_text().strip() != NTFS_HELPERS_REV:
+                raise RuntimeError("Incorrect pinned NTFS helper source revision")
+            return
+        if NTFS_HELPERS.exists():
+            raise RuntimeError("Refusing to overwrite an unqualified NTFS helper source")
+        NTFS_HELPERS.parent.mkdir(parents=True, exist_ok=True)
+        run(["git", "clone", "-q", "https://github.com/tuxera/ntfs-3g.git", NTFS_HELPERS])
+        run(["git", "-C", NTFS_HELPERS, "checkout", "-q", NTFS_HELPERS_REV])
+        actual = subprocess.check_output(
+            ["git", "-C", str(NTFS_HELPERS), "rev-parse", "HEAD"],
+            text=True).strip()
+        if actual != NTFS_HELPERS_REV:
+            raise RuntimeError("Pinned NTFS helper source revision mismatch")
+        marker.write_text(NTFS_HELPERS_REV + "\n")
         return
     source = ROOT / "backend-ext4"
     if source.exists():
@@ -118,7 +135,12 @@ def prepare_release_source():
 
 def embedded_source_files():
     if not ENGINE:
-        return []
+        marker = NTFS_HELPERS / "SOURCE-REVISION"
+        if not marker.is_file() or marker.read_text().strip() != NTFS_HELPERS_REV:
+            raise RuntimeError("Missing exact NTFS helper source for embedded RUN")
+        return [p.relative_to(ROOT) for p in NTFS_HELPERS.rglob("*")
+                if p.is_file() and not p.is_symlink() and
+                not {".git", "build", "dist", "__pycache__", ".libs"}.intersection(p.parts)]
     directory = ROOT / "backend-ext4"
     if (directory / "SOURCE-REVISION").read_text().strip() != ENGINE:
         raise RuntimeError("Missing pinned EXT3 engine snapshot")
@@ -140,8 +162,9 @@ def dependencies(module):
     mapping = {"libc.so.6": None, "libpthread.so.0": None, "libm.so.6": None,
                "ld-linux-x86-64.so.2": None, "libcrypto.so.3": "libssl3t64 | libssl3",
                "libsqlite3.so.0": "libsqlite3-0", "libstdc++.so.6": "libstdc++6",
-               "libgcc_s.so.1": "libgcc-s1",
-               "libntfs-3g.so.89": "libntfs-3g89t64 | libntfs-3g89"}
+               "libgcc_s.so.1": "libgcc-s1"}
+    if any("ntfs-3g" in name.lower() or "fuse" in name.lower() for name in libs):
+        raise RuntimeError("NTFS.so must not link to external NTFS-3G or FUSE runtimes")
     if libs - set(mapping):
         raise RuntimeError("Unexpected external filesystem runtime dependencies: " +
                            repr(sorted(libs - set(mapping))))
