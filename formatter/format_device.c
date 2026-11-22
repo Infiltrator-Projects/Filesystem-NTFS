@@ -56,9 +56,10 @@ static int store(NtfsFormatDevice *target, uint64_t offset,
  * boot signature before changing its metadata. */
 static int begin_format(NtfsFormatDevice *target)
 {
-    const uint8_t zero[512] = {0};
-    if (store(target, 0u, zero, sizeof(zero)) ||
-        store(target, target->host->volume_bytes - sizeof(zero), zero, sizeof(zero)) ||
+    const uint8_t zero[4096] = {0};
+    const uint32_t sector = target->host->logical_sector_bytes;
+    if (store(target, 0u, zero, sector) ||
+        store(target, target->host->volume_bytes - sector, zero, sector) ||
         target->host->flush(target->host->context))
         return failed(target, EIO);
     target->started = true;
@@ -84,31 +85,32 @@ static s64 pwrite_device(struct ntfs_device *device, const void *data,
         return -1;
 
     const uint8_t *input = data;
-    const uint64_t last = host->volume_bytes - 512u;
-    const uint32_t transfer = host->maximum_transfer_bytes & ~511u;
+    const uint32_t sector_bytes = host->logical_sector_bytes;
+    const uint64_t last = host->volume_bytes - sector_bytes;
+    const uint32_t transfer = host->maximum_transfer_bytes & ~(sector_bytes - 1u);
     uint64_t at = (uint64_t)offset;
     uint64_t left = (uint64_t)count;
     while (left) {
-        const uint32_t skip = (uint32_t)(at & 511u);
-        uint32_t bytes = left < 512u - skip ? (uint32_t)left : 512u - skip;
-        if (at < 512u) {
+        const uint32_t skip = (uint32_t)(at & (sector_bytes - 1u));
+        uint32_t bytes = left < sector_bytes - skip ? (uint32_t)left : sector_bytes - skip;
+        if (at < sector_bytes) {
             memcpy(target->primary + skip, input, bytes);
             target->have_primary = true;
         } else if (at >= last) {
             memcpy(target->backup + skip, input, bytes);
             target->have_backup = true;
-        } else if (skip || bytes < 512u) {
-            uint8_t sector[512];
+        } else if (skip || bytes < sector_bytes) {
+            uint8_t sector[4096];
             const uint64_t base = at - skip;
-            if (host->read_at(host->context, base, sector, sizeof(sector)))
+            if (host->read_at(host->context, base, sector, sector_bytes))
                 return failed(target, EIO);
             memcpy(sector + skip, input, bytes);
-            if (store(target, base, sector, sizeof(sector)))
+            if (store(target, base, sector, sector_bytes))
                 return -1;
         } else {
             uint64_t available = last - at;
             if (available > left) available = left;
-            available &= ~UINT64_C(511);
+            available &= ~((uint64_t)sector_bytes - 1u);
             bytes = available < transfer ? (uint32_t)available : transfer;
             if (store(target, at, input, bytes))
                 return -1;
@@ -149,17 +151,18 @@ struct ntfs_device *ntfs_format_device(NtfsFormatDevice *target)
 int ntfs_format_finish(NtfsFormatDevice *target)
 {
     const IfsFsHostRuntimeV2 *host = target->host;
+    const uint32_t sector = host->logical_sector_bytes;
     if (!target->have_primary || !target->have_backup ||
-        memcmp(target->primary, target->backup, sizeof(target->primary)))
+        memcmp(target->primary, target->backup, sector))
         return IFS_FS_CORRUPT;
     if (host->cancelled && host->cancelled(host->context))
         return IFS_FS_IO_ERROR;
     /* The format engine already flushed the new metadata. Publish the backup
      * and primary in order, using real barriers on the same held target. */
-    if (store(target, host->volume_bytes - sizeof(target->backup),
-              target->backup, sizeof(target->backup)) ||
+    if (store(target, host->volume_bytes - sector,
+              target->backup, sector) ||
         host->flush(host->context) ||
-        store(target, 0u, target->primary, sizeof(target->primary)) ||
+        store(target, 0u, target->primary, sector) ||
         host->flush(host->context))
         return IFS_FS_IO_ERROR;
     return IFS_FS_OK;
