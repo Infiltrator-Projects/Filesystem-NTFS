@@ -10,4 +10,8 @@ int ntfs_ro_query_v2(NtfsReadOnlyV2 *,IfsFsVolumeInfoV2 *);
 int ntfs_ro_stat_v2(NtfsReadOnlyV2 *,const char *,IfsFsEntryV2 *);
 int ntfs_ro_list_v2(NtfsReadOnlyV2 *,const char *,uint32_t,IfsFsEntryV2 *);
 int ntfs_ro_read_v2(NtfsReadOnlyV2 *,const char *,uint64_t,void *,uint32_t);
+/* Hosted DEFRAG.MAP reads the same validated NTFS runlist and namespace
+ * as the freestanding Common V2 reader. No alternate NTFS-3G mapper. */
+int ntfs_ro_map_v2(NtfsReadOnlyV2 *,const char *,uint64_t,
+                   IfsFsExtentV2 *,uint32_t,uint32_t *);
 #endif
