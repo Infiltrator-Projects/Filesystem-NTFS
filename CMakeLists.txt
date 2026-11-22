@@ -47,6 +47,7 @@ add_custom_command(OUTPUT "${NTFS_FIRMWARE_ELF}"
 add_custom_target(ntfs-firmware DEPENDS "${NTFS_FIRMWARE_ELF}")
 add_library(ntfs-driver SHARED
  native/ntfs_disk.c
+ native/ntfs_ro_v2.c
  native/ntfs_common.c native/ntfs_catalog.c
  module/ntfs_v2_probe.c module/ntfs_v2_map.c
  $<TARGET_OBJECTS:ntfs-formatter>)
