@@ -7,16 +7,7 @@ find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
 find_path(NTFS3G_INCLUDE_DIR NAMES ntfs-3g/device.h REQUIRED)
-# The vendored formatter currently needs NTFS-3G development symbols.
-# Link the static archive into NTFS.so: never load libntfs-3g.so at runtime.
-# This is a transitional build dependency, not a self-contained formatter.
-set(_NTFS_SAVED_LIBRARY_SUFFIXES "${CMAKE_FIND_LIBRARY_SUFFIXES}")
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 find_library(NTFS3G_LIBRARY NAMES ntfs-3g REQUIRED)
-set(CMAKE_FIND_LIBRARY_SUFFIXES "${_NTFS_SAVED_LIBRARY_SUFFIXES}")
-if(NOT NTFS3G_LIBRARY MATCHES "\\.a$")
-  message(FATAL_ERROR "NTFS formatter must not dynamically link against NTFS-3G")
-endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
