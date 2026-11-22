@@ -1,17 +1,36 @@
-# NTFS source consolidation — 6 November 2026
+# NTFS Common V2 source consolidation — 22 November 2026
 
-The independent NTFS module repository now contains all 29 canonical source/design files under `native/filesystems/ntfs/` from central Filesystems main `a253fb724ce1fd760a361219281effb6abd71367`. Its existing matching design file was preserved. The complete original Linux NTFS3 VFS code was imported into its local `native/filesystems/ntfs/linux/` tree, preserving its separate code authorship and licenses. The existing Defragmenter-derived native NTFS worker and standalone module remain intact and continue to be built by this repository.
+The production independent `/System/Filesystems/NTFS.so` exports the
+canonical `infiltrator_filesystem_api_v2` and is the sole installed
+filesystem module. The native hosted CORE and freestanding CORE are both
+compiled from `native/ntfs_ro_v2.c`, and both use the source-owned,
+read-only NTFS decoder; no separate NTFS-3G pathname or file-reader path
+is permitted. Hosted DEFRAG.MAP now uses that same native MFT runlist
+parser, rather than `module/ntfs_v2_map.c`. This retired, duplicate
+decoder has been deleted. Hosted VOLUME.FORMAT remains the existing
+source-owned formatter and is not advertised by the firmware reader.
 
-`standalone/kernel.json` builds `ntfs3.ko` from this repository's source, without retrieving a pinned older Filesystems source archive. The independent `.so` is still subject to its ABI and real-media qualification tests; copying the kernel driver does not itself mean the shared object implements full NTFS read/write.
+The historical NTFS V1 adapters, workers, Linux NTFS3 source and
+transactional defragmentation fixtures are not part of the installed
+shared object. A checkout may retain historical source and test
+fixtures; **they are not runtime ABI exports, installed kernel drivers
+or fallbacks**. No `.ko` is distributed by the Common V2 package.
+Common V2 DEFRAG.MAP provides real, bounded, read-only extent mapping,
+not PLAN/EXECUTE/VERIFY/RECOVER; those write/recovery capabilities
+remain unavailable until the format's native transactional engine is
+migrated and interrupted writes are qualified.
 
-Central source deletion requires an independent kernel build and runtime test plus detachment of the central test/package consumers. The Linux source must not be forked again in Filesystems after that cutover.
+The repository's disposable real-media suite compares complete kernel
+and initramfs file bytes through hosted and extracted freestanding
+profiles on both 512 B and 4 KiB sector media; checks allocation map
+bounds, paging, corrupt MFT records, dirty journal rejection, stale
+handles and nonmutation; and independently tests duplicate FILE
+attributes and truncated runlist denial.
 
-NTFS metadata-plan application can now use an existing exclusive, durable
-Common V2 storage lease without reopening the target by pathname. Its
-disposable-image tests cover rejection before writes and failed durability.
-This primitive alone does not qualify V2 relocation or crash recovery; those
-operations remain unavailable through the Common V2 defragmentation group
-until their complete transaction and recovery paths have been migrated.
-Workspace relocation also rejects out-of-bounds cluster addresses, incomplete
-database reads and empty relocation sets; disposable-image tests exercise
-staging, verification, placement, recovery and these failure cases.
+The **version in the source tree is 1.0.21**, following the previous
+published 1.0.20. This source is not a verified release until the
+exact-main GitHub Actions build, portable Debian package, aggressive
+native RUN build and packaged-media tests all succeed and publish a
+new immutable release. Neither profile is currently accepted by a
+production BOOT Common V2 validator, because BOOT itself is not V2.
+No BOOT source, ESP, firmware state or physical disks were altered.
