@@ -94,10 +94,21 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
     memcpy(&volume->host, host, host_bytes);
     volume->host.structure_bytes = (uint32_t)host_bytes;
     volume->media.fd = -1;
+    /* CORE.MOUNT must apply the same native clean-volume policy in both
+     * profiles before the hosted allocation inventory is inspected. A
+     * dirty NTFS volume is UNSUPPORTED (needs journal replay), not an
+     * apparently corrupt bitmap just because hosted inventory refused it. */
+    IfsFsVolumeInfoV2 reader_info={.structure_bytes=sizeof(reader_info)};
+    result=ntfs_ro_open_v2(&volume->host,&volume->reader,&reader_info);
+    if(result!=IFS_FS_OK) {
+        host->release(host->context, volume);
+        return result;
+    }
     char *error = NULL;
     if (ntfs_open_host(&volume->host, &volume->media, &error) != 0 ||
         ntfs_read_layout(&volume->media, false, &volume->layout, &error) != 0) {
         free(error);
+        ntfs_ro_close_v2(volume->reader);
         ntfs_layout_free(&volume->layout);
         ntfs_close_volume(&volume->media);
         host->release(host->context, volume);
@@ -120,18 +131,6 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
         return IFS_FS_CORRUPT;
     }
     volume->free_clusters = total - used;
-    /* The freestanding and hosted V2 CORE operations must use identical
-     * source-owned parsing and dirty-volume/unsupported-feature policy.
-     * Keep the existing source-owned layout only for DEFRAG.MAP and VOLUME
-     * accounting; it must not serve file bytes or pathname traversal. */
-    IfsFsVolumeInfoV2 reader_info={.structure_bytes=sizeof(reader_info)};
-    result=ntfs_ro_open_v2(&volume->host,&volume->reader,&reader_info);
-    if(result!=IFS_FS_OK) {
-        ntfs_layout_free(&volume->layout);
-        ntfs_close_volume(&volume->media);
-        host->release(host->context, volume);
-        return result;
-    }
     result = fill_volume(volume, info);
     if (result != IFS_FS_OK) {
         ntfs_ro_close_v2(volume->reader);
