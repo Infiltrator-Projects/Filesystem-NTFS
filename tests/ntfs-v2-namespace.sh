@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test_app=$(realpath "${1:?Common V2 test executable required}")
 copy_tool=$(realpath "${2:?ntfscp required}")
 mkfs_tool=$(realpath "${3:?mkntfs required}")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 image="$work/native.img"
-bash "$(dirname "$0")/boot-file-fixtures.sh" "$work/bootfiles"
+bash "$script_dir/boot-file-fixtures.sh" "$work/bootfiles"
 payload="$work/bootfiles/vmlinuz"
 initramfs="$work/bootfiles/initramfs"
 truncate -s 64M "$image"
