@@ -5,6 +5,8 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 probe=$(realpath "${1:?probe harness}")
 hosted=$(realpath "${2:?namespace harness}")
 module=$(realpath "${3:?installed NTFS.so}")
+mkntfs_tool=$(realpath "${4:?mkntfs tool}")
+ntfscp_tool=$(realpath "${5:?ntfscp tool}")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -17,9 +19,9 @@ kernel_source="$work/bootfiles/vmlinuz"
 initramfs_source="$work/bootfiles/initramfs"
 for disk_sector in 512 4096; do
     truncate -s 64M good.img
-    mkntfs -F -Q -s "$disk_sector" good.img >/dev/null
-    ntfscp -f good.img "$kernel_source" kernel.img
-    ntfscp -f good.img "$initramfs_source" initramfs.img
+    "$mkntfs_tool" -F -Q -s "$disk_sector" good.img >/dev/null
+    "$ntfscp_tool" -f good.img "$kernel_source" kernel.img
+    "$ntfscp_tool" -f good.img "$initramfs_source" initramfs.img
     cp --sparse=always --reflink=auto good.img bad-mft.img
     cp --sparse=always --reflink=auto good.img bad-geometry.img
     cp --sparse=always --reflink=auto good.img dirty-volume.img
