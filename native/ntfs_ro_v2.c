@@ -52,16 +52,16 @@ static int bytes(NtfsReadOnlyV2 *v,uint64_t offset,void *output,uint32_t n)
         return IFS_FS_CORRUPT;
     return ifs_fs_host_read_bytes_v2(&v->host,offset,output,n);
 }
-static int fixup(uint8_t *p,uint32_t n,const char magic[4])
+static int fixup(uint8_t *p,uint32_t n,uint32_t sector_bytes,const char magic[4])
 {
-    if(n<512u || n%512u || memcmp(p,magic,4u))
+    if(n<sector_bytes || n%sector_bytes || memcmp(p,magic,4u))
         return IFS_FS_CORRUPT;
     uint16_t at=0u,count=0u;
-    int rc=ntfs_disk_usa(p,n,&at,&count);
+    int rc=ntfs_disk_usa(p,n,sector_bytes,&at,&count);
     if(rc!=IFS_FS_OK)return rc;
     uint16_t check=U16(p+at);
     for(uint32_t i=1u;i<count;++i) {
-        uint32_t tail=i*512u-2u;
+        uint32_t tail=i*sector_bytes-2u;
         if(U16(p+tail)!=check)return IFS_FS_CORRUPT;
         p[tail]=p[at+i*2u];
         p[tail+1u]=p[at+i*2u+1u];
@@ -260,7 +260,7 @@ static int record_load(NtfsReadOnlyV2 *v,uint64_t reference,uint8_t **output)
                      NTFS_ATTR_DATA,NULL,&a,&size);
     if(rc==IFS_FS_OK)
         rc=stream_read(v,a,size,pos,p,v->geometry.record_bytes);
-    if(rc==IFS_FS_OK)rc=fixup(p,v->geometry.record_bytes,"FILE");
+    if(rc==IFS_FS_OK)rc=fixup(p,v->geometry.record_bytes,v->geometry.sector_bytes,"FILE");
     if(rc==IFS_FS_OK && !(U16(p+22u)&1u))
         rc=IFS_FS_NOT_FOUND;
     if(rc==IFS_FS_OK && sequence && U16(p+16u)!=sequence)
@@ -426,7 +426,7 @@ static int index_child(NtfsReadOnlyV2 *v,const uint8_t *allocation,
     uint8_t *block=take(v,index_bytes);
     if(!block)return IFS_FS_NO_MEMORY;
     int rc=stream_read(v,allocation,allocation_bytes,at,block,index_bytes);
-    if(rc==IFS_FS_OK)rc=fixup(block,index_bytes,"INDX");
+    if(rc==IFS_FS_OK)rc=fixup(block,index_bytes,v->geometry.sector_bytes,"INDX");
     if(rc==IFS_FS_OK && U64(block+16u)!=vcn)
         rc=IFS_FS_CORRUPT;
     if(rc==IFS_FS_OK)
@@ -685,7 +685,7 @@ int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *host,
     v->mft=take(v,g.record_bytes);
     if(!v->mft){drop(v,v);return IFS_FS_NO_MEMORY;}
     rc=bytes(v,g.mft_lcn*(uint64_t)g.cluster_bytes,v->mft,g.record_bytes);
-    if(rc==IFS_FS_OK)rc=fixup(v->mft,g.record_bytes,"FILE");
+    if(rc==IFS_FS_OK)rc=fixup(v->mft,g.record_bytes,g.sector_bytes,"FILE");
     if(rc==IFS_FS_OK && !(U16(v->mft+22u)&1u))
         rc=IFS_FS_CORRUPT;
     const uint8_t *attr=NULL;uint32_t a_bytes=0u;
