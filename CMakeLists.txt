@@ -111,13 +111,10 @@ if(BUILD_TESTING)
  target_compile_options(ntfs-v2-format-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
  target_include_directories(ntfs-v2-format-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_link_libraries(ntfs-v2-format-test PRIVATE ntfs-driver ntfs-legacy-test-support InfiltratrCommon::Common SQLite::SQLite3 OpenSSL::Crypto)
- find_program(NTFS_LABEL_TOOL ntfslabel REQUIRED)
- find_program(NTFS_FIX_TOOL ntfsfix REQUIRED)
- find_program(NTFS_RESIZE_TOOL ntfsresize REQUIRED)
  find_program(NTFS_COPY_TOOL ntfscp REQUIRED)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
-    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}" "${NTFS_COPY_TOOL}")
+    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_COPY_TOOL}")
  add_test(NAME ntfs-native-v2-format-1024
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_4kn.sh"
     "$<TARGET_FILE:ntfs-v2-format-test>" 1024)
