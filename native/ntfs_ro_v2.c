@@ -381,7 +381,8 @@ static int index_walk(NtfsReadOnlyV2 *v,const uint8_t *header,
                                                find->wanted,find->wanted_length)) ||
                    (!find->wanted && find->index--==0u)) {
                     uint64_t reference=U64(item)&UINT64_C(0x0000ffffffffffff);
-                    if(reference==0u)return IFS_FS_CORRUPT;
+                    /* NTFS MFT record zero is the real $MFT system file.
+                     * It is a valid directory reference, not a null ID. */
                     find->reference=reference;
                     memcpy(find->name,name,length_name+1u);
                     find->name_length=length_name;
