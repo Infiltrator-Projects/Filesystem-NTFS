@@ -119,6 +119,7 @@ static struct mkntfs_options {
     s64 num_sectors;
     const ntfschar *label;
     size_t label_bytes;
+    uint32_t sector_bytes;
 } opts;
 
 
@@ -2911,7 +2912,7 @@ static BOOL mkntfs_override_vol_params(ntfs_volume *vol)
 {
 	/* Reserve the final logical sector for the alternate boot sector.
 	 * Larger volumes need larger clusters to stay within 32-bit LCNs. */
-	const uint64_t bytes = (uint64_t)--opts.num_sectors * 512u;
+	const uint64_t bytes = (uint64_t)--opts.num_sectors * opts.sector_bytes;
 	uint32_t cluster = 4096u;
 	while (bytes / cluster > UINT32_MAX && cluster < 65536u)
 		cluster <<= 1;
@@ -2920,12 +2921,12 @@ static BOOL mkntfs_override_vol_params(ntfs_volume *vol)
 	vol->cluster_size = cluster;
 	vol->cluster_size_bits = ffs(cluster) - 1;
 	vol->nr_clusters = bytes / cluster;
-	vol->mft_record_size = 1024;
-	vol->mft_record_size_bits = 10;
+	vol->mft_record_size = opts.sector_bytes > 1024u ? opts.sector_bytes : 1024u;
+	vol->mft_record_size_bits = ffs(vol->mft_record_size) - 1;
 	vol->indx_record_size = 4096;
 	vol->indx_record_size_bits = 12;
-	vol->sector_size = 512;
-	vol->sector_size_bits = 9;
+	vol->sector_size = opts.sector_bytes;
+	vol->sector_size_bits = ffs(opts.sector_bytes) - 1;
 	return TRUE;
 }
 
@@ -3036,7 +3037,7 @@ static BOOL mkntfs_initialize_rl_mft(void)
 	if (!bitmap_allocate(g_mft_lcn, j))
 		return FALSE;
 	/* Determine mftmirr_lcn (middle of volume). */
-	g_mftmirr_lcn = (opts.num_sectors * 512u >> 1)
+	g_mftmirr_lcn = ((u64)opts.num_sectors * opts.sector_bytes >> 1)
 			/ g_vol->cluster_size;
 	ntfs_log_debug("$MFTMirr logical cluster number = 0x%llx\n",
 			g_mftmirr_lcn);
@@ -3302,8 +3303,9 @@ static BOOL create_file_volume(MFT_RECORD *m, leMFT_REF root_ref)
 static int create_backup_boot_sector(const u8 *buffer)
 {
 	struct ntfs_device *device = g_vol->dev;
-	s64 at = opts.num_sectors * 512;
-	return device->d_ops->pwrite(device, buffer, 512, at) == 512 ? 0 : -1;
+	s64 at = opts.num_sectors * opts.sector_bytes;
+	return device->d_ops->pwrite(device, buffer, opts.sector_bytes, at) ==
+		(s64)opts.sector_bytes ? 0 : -1;
 }
 
 /**
@@ -3563,8 +3565,8 @@ static BOOL mkntfs_create_root_structures(void)
 	 * in the boot sector section and that it has the NTFS OEM id/magic
 	 * already inserted, so no need to worry about these things.
 	 */
-	bs->bpb.bytes_per_sector = cpu_to_le16(512u);
-	sectors_per_cluster = g_vol->cluster_size / 512u;
+	bs->bpb.bytes_per_sector = cpu_to_le16(opts.sector_bytes);
+	sectors_per_cluster = g_vol->cluster_size / opts.sector_bytes;
 	if (sectors_per_cluster > 128)
 		bs->bpb.sectors_per_cluster = 257 - ffs(sectors_per_cluster);
 	else
@@ -4063,12 +4065,15 @@ int ifs_ntfs_format(const IfsFsHostRuntimeV2 *host, uint32_t variant,
         return IFS_FS_INVALID;
     if (host->capabilities & IFS_FS_HOST_READ_ONLY)
         return IFS_FS_ACCESS;
-    if (flags || variant != 1u || host->logical_sector_bytes != 512u)
+    if (flags || variant != 1u ||
+        (host->logical_sector_bytes != 512u && host->logical_sector_bytes != 4096u))
         return IFS_FS_UNSUPPORTED;
     if (host->volume_bytes < UINT64_C(8) * 1024u * 1024u ||
         host->volume_bytes > (UINT64_C(1) << 48) ||
         host->volume_bytes % host->logical_sector_bytes)
         return IFS_FS_INVALID;
+    if (host->maximum_transfer_bytes < host->logical_sector_bytes)
+        return IFS_FS_UNSUPPORTED;
 
     ntfschar name[128];
     size_t name_bytes = sizeof(name);
@@ -4082,6 +4087,7 @@ int ifs_ntfs_format(const IfsFsHostRuntimeV2 *host, uint32_t variant,
         NtfsFormatDevice target = {.host = host, .serial = serial};
         opts = (struct mkntfs_options){
             .num_sectors = (s64)(host->volume_bytes / host->logical_sector_bytes),
+            .sector_bytes = host->logical_sector_bytes,
             .label = label ? name : NULL,
             .label_bytes = label ? name_bytes : 0u
         };
