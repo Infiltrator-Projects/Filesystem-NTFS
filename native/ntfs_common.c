@@ -204,9 +204,10 @@ int ntfs_apply_fixups(const uint8_t *raw, size_t length, uint32_t sector_size,
         return -1;
     }
     memcpy(fixed, raw, length);
+    const size_t protected_bytes = length / ((size_t)usa_count - 1u);
     uint16_t usn = ntfs_u16(fixed, usa_off);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * sector_size;
+        size_t end = index * protected_bytes;
         if (ntfs_u16(fixed, end - 2U) != usn) { ntfs_set_error(error, "NTFS MFT update-sequence mismatch"); return -1; }
         ntfs_put_u16(fixed, end - 2U, ntfs_u16(fixed, usa_off + index * 2U));
     }
@@ -225,10 +226,11 @@ int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_siz
         return -1;
     }
     memcpy(raw, fixed, length);
+    const size_t protected_bytes = length / ((size_t)usa_count - 1u);
     uint16_t usn = (uint16_t)(ntfs_u16(raw, usa_off) + 1U); if (usn == 0) usn = 1;
     ntfs_put_u16(raw, usa_off, usn);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * sector_size;
+        size_t end = index * protected_bytes;
         ntfs_put_u16(raw, usa_off + index * 2U, ntfs_u16(raw, end - 2U));
         ntfs_put_u16(raw, end - 2U, usn);
     }
