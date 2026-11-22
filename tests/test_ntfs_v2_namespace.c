@@ -41,22 +41,21 @@ static int verify_payload(const IfsFsCoreOpsV2 *core,void *mount,
           (uint64_t)st.st_size<=64u*1024u*1024u);
     int fd=open(source_path,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(fd>=0);
+    FILE *file=fdopen(fd,"rb");
+    CHECK(file!=NULL);
     uint8_t expected[65536],actual[65536];
     for(uint64_t offset=0u;offset<(uint64_t)st.st_size;) {
         uint64_t pending=(uint64_t)st.st_size-offset;
         uint32_t count=pending>sizeof(expected)?
             (uint32_t)sizeof(expected):(uint32_t)pending;
-        size_t got=0u;
-        while(got<count) {
-            ssize_t n=pread(fd,expected+got,count-got,(off_t)(offset+got));
-            CHECK(n>0);
-            got+=(size_t)n;
-        }
+        /* fread fills a bounded buffer or reports an actual short read;
+         * unlike an unchecked pread length it cannot wrap a size_t cursor. */
+        CHECK(fread(expected,1u,(size_t)count,file)==(size_t)count);
         CHECK(core->read(mount,disk_path,offset,actual,count)==IFS_FS_OK);
         CHECK(memcmp(expected,actual,count)==0);
         offset+=count;
     }
-    CHECK(close(fd)==0);
+    CHECK(fclose(file)==0);
     return 0;
 }
 
