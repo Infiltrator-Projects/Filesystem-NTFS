@@ -18,21 +18,23 @@ typedef struct {
     unsigned writes;
     unsigned flushes;
     unsigned fail_flush;
+    uint32_t sector_bytes;
 } Image;
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "NTFS format: %s\n", #x); goto done; } } while (0)
 
-static int bounds(uint64_t offset, uint32_t bytes)
+static int bounds(const Image *image, uint64_t offset, uint32_t bytes)
 {
-    return bytes && bytes <= 4096u && !(bytes % SECTOR) &&
-           !(offset % SECTOR) && offset <= IMAGE_BYTES &&
+    const uint32_t sector = image->sector_bytes ? image->sector_bytes : SECTOR;
+    return bytes && bytes <= 4096u && !(bytes % sector) &&
+           !(offset % sector) && offset <= IMAGE_BYTES &&
            bytes <= IMAGE_BYTES - offset;
 }
 
 static int read_at(void *context, uint64_t offset, void *data, uint32_t bytes)
 {
     Image *image = context;
-    return !bounds(offset, bytes) ||
+    return !bounds(image, offset, bytes) ||
            pread(image->fd, data, bytes, (off_t)offset) != (ssize_t)bytes;
 }
 
@@ -40,7 +42,7 @@ static int write_at(void *context, uint64_t offset, const void *data, uint32_t b
 {
     Image *image = context;
     ++image->writes;
-    return !bounds(offset, bytes) ||
+    return !bounds(image, offset, bytes) ||
            pwrite(image->fd, data, bytes, (off_t)offset) != (ssize_t)bytes;
 }
 
@@ -439,8 +441,60 @@ done:
     return status;
 }
 
+/* Independent real 4Kn volume: the same Common V2 production formatter
+ * creates the media, and the native reader must mount its 4096-byte FILE
+ * records. No external disk formatter and no logical-sector substitution. */
+static int check_4kn_format(const char *path)
+{
+    Image image = {.fd = open(path, O_RDWR | O_CREAT | O_EXCL | O_NOFOLLOW, 0600),
+                   .sector_bytes = 4096u};
+    if (image.fd < 0) return 2;
+    int result = 1;
+    const IfsFsModuleApiV2 *api = infiltrator_filesystem_api_v2();
+    CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
+    const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
+    const IfsFsVolumeOpsV2 *volume = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
+    CHECK(core && core->probe && core->mount && core->unmount && volume && volume->format);
+    CHECK(ftruncate(image.fd, IMAGE_BYTES) == 0);
+    IfsFsHostRuntimeV2 host = {
+        .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
+        .capabilities = IFS_FS_HOST_EXCLUSIVE | IFS_FS_HOST_DURABLE,
+        .volume_bytes = IMAGE_BYTES, .logical_sector_bytes = 4096u,
+        .physical_sector_bytes = 4096u, .maximum_transfer_bytes = 4096u,
+        .context = &image, .read_at = read_at, .write_at = write_at,
+        .flush = flush, .allocate = allocate, .release = release,
+    };
+    CHECK(volume->format(&host, 1u, "Native 4Kn", 0u) == IFS_FS_OK);
+    CHECK(image.writes > 0u && image.flushes > 0u);
+    uint8_t primary[4096], backup[4096];
+    CHECK(read_at(&image, 0, primary, sizeof(primary)) == 0);
+    CHECK(read_at(&image, IMAGE_BYTES - sizeof(backup), backup, sizeof(backup)) == 0);
+    CHECK(memcmp(primary, backup, sizeof(primary)) == 0);
+    CHECK(primary[510] == 0x55u && primary[511] == 0xaau);
+    CHECK(primary[11] == 0x00u && primary[12] == 0x10u);
+    IfsFsHostRuntimeV2 reader = host;
+    reader.capabilities = IFS_FS_HOST_READ_ONLY;
+    reader.write_at = NULL;
+    reader.flush = NULL;
+    uint32_t variant = 0;
+    CHECK(core->probe(&reader, &variant) == IFS_FS_OK && variant == 1u);
+    IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
+    void *mounted = NULL;
+    CHECK(core->mount(&reader, &mounted, &info) == IFS_FS_OK);
+    CHECK(info.variant == 1u && info.block_bytes == 4096u &&
+          info.total_bytes == IMAGE_BYTES - 4096u);
+    CHECK(core->unmount(mounted) == IFS_FS_OK);
+    result = 0;
+done:
+    if (close(image.fd)) result = 1;
+    if (result) unlink(path);
+    return result;
+}
+
 int main(int argc, char **argv)
 {
+    if (argc == 3 && strcmp(argv[2], "--sector-4096") == 0)
+        return check_4kn_format(argv[1]);
     if (argc == 3) return check_map(argv[1], argv[2]);
     if (argc != 2) return 2;
     if (check_workspace_map() != 0) return 1;
