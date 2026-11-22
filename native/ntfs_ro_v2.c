@@ -378,6 +378,15 @@ static int equal_name(const NtfsReadOnlyV2 *v,const char *a,size_t n,
 {
     size_t i=0u,j=0u;
     if(!v->upcase)return -1;
+    /* Parse BOTH names fully before comparing. Otherwise an invalid UTF-8
+     * sequence after a legitimate prefix could be reported as a simple
+     * non-match because one string ended or an earlier scalar differed. */
+    uint32_t unit=0u;
+    while(i<n)
+        if(next_utf8(a,n,&i,&unit)!=IFS_FS_OK)return -1;
+    while(j<m)
+        if(next_utf8(b,m,&j,&unit)!=IFS_FS_OK)return -1;
+    i=0u;j=0u;
     while(i<n && j<m) {
         uint32_t x=0u,y=0u;
         if(next_utf8(a,n,&i,&x)!=IFS_FS_OK ||
