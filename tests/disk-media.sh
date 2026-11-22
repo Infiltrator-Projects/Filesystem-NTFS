@@ -11,12 +11,14 @@ objcopy --dump-section .infiltrator_boot=reader.elf "$module" copy.so
 test -s reader.elf
 test -z "$(nm -Du reader.elf)"
 if readelf -dW reader.elf | grep '(NEEDED)' >/dev/null; then exit 1; fi
-head -c 65536 /dev/urandom > source
+bash "$(dirname "$0")/boot-file-fixtures.sh" "$work/bootfiles"
+kernel_source="$work/bootfiles/vmlinuz"
+initramfs_source="$work/bootfiles/initramfs"
 for disk_sector in 512 4096; do
     truncate -s 64M good.img
     mkntfs -F -Q -s "$disk_sector" good.img >/dev/null
-    ntfscp -f good.img source kernel.img
-    ntfscp -f good.img source initramfs.img
+    ntfscp -f good.img "$kernel_source" kernel.img
+    ntfscp -f good.img "$initramfs_source" initramfs.img
     cp --sparse=always --reflink=auto good.img bad-mft.img
     cp --sparse=always --reflink=auto good.img bad-geometry.img
     cp --sparse=always --reflink=auto good.img dirty-volume.img
@@ -72,11 +74,11 @@ MEDIA
             "$probe" "$profile" good.img "$host_sector" clean
             "$probe" "$profile" bad-geometry.img "$host_sector" corrupt
         done
-        "$hosted" good.img source --read "$host_sector"
-        "$hosted" bad-mft.img source --bad-mft "$host_sector"
-        "$hosted" good.img source --read "$host_sector" "$work/reader.elf"
-        "$hosted" bad-mft.img source --bad-mft "$host_sector" "$work/reader.elf"
-        "$hosted" dirty-volume.img source --dirty-volume "$host_sector" "$work/reader.elf"
+        "$hosted" good.img "$kernel_source" --read "$host_sector"
+        "$hosted" bad-mft.img "$kernel_source" --bad-mft "$host_sector"
+        "$hosted" good.img "$kernel_source" --read "$host_sector" "$work/reader.elf"
+        "$hosted" bad-mft.img "$kernel_source" --bad-mft "$host_sector" "$work/reader.elf"
+        "$hosted" dirty-volume.img "$kernel_source" --dirty-volume "$host_sector" "$work/reader.elf"
     done
     sha256sum -c media.sha
 done
