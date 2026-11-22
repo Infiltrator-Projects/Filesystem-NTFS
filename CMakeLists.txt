@@ -118,6 +118,9 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
     "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_LABEL_TOOL}" "${NTFS_FIX_TOOL}" "${NTFS_RESIZE_TOOL}" "${NTFS_COPY_TOOL}")
+ add_test(NAME ntfs-native-v2-format-4kn
+  COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_4kn.sh"
+    "$<TARGET_FILE:ntfs-v2-format-test>")
  # Test relocation bounds and recovery failures on a temporary regular file.
  # Only the workspace code is linked; target access is supplied by the fixture.
  add_executable(ntfs-workspace-safety-test tests/test_ntfs_workspace_safety.c native/ntfs_plan.c)
