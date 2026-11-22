@@ -60,8 +60,9 @@ static int fixup(uint8_t *p,uint32_t n,uint32_t sector_bytes,const char magic[4]
     int rc=ntfs_disk_usa(p,n,sector_bytes,&at,&count);
     if(rc!=IFS_FS_OK)return rc;
     uint16_t check=U16(p+at);
+    const uint32_t protected_bytes=n/(count-1u);
     for(uint32_t i=1u;i<count;++i) {
-        uint32_t tail=i*sector_bytes-2u;
+        uint32_t tail=i*protected_bytes-2u;
         if(U16(p+tail)!=check)return IFS_FS_CORRUPT;
         p[tail]=p[at+i*2u];
         p[tail+1u]=p[at+i*2u+1u];
