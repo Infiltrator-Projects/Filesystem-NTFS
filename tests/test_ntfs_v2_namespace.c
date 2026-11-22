@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dlfcn.h>
 #include <sys/stat.h>
 #include <unistd.h>
 extern const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void);
@@ -30,7 +31,7 @@ static void release(void *unused,void *p)
     return 1; } } while(0)
 int main(int argc,char **argv)
 {
-    if (argc!=4 && argc!=5)return 2;
+    if (argc!=4 && argc!=5 && argc!=6)return 2;
     Image image={.sector=argc==5 ? (uint32_t)strtoul(argv[4],NULL,10):512u};
     image.fd=open(argv[1],O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(image.fd>=0);
@@ -48,9 +49,23 @@ int main(int argc,char **argv)
         .context=&image,
         .read_at=read_at,.allocate=allocate,.release=release
     };
-    const IfsFsModuleApiV2 *api=infiltrator_filesystem_api_v2();
+    void *firmware=NULL;
+    const IfsFsModuleApiV2 *api=NULL;
+    if(argc==6) {
+        firmware=dlopen(argv[5],RTLD_NOW|RTLD_LOCAL);
+        CHECK(firmware);
+        void *symbol=dlsym(firmware,IFS_FS_COMMON_EXPORT_V2);
+        IfsFsModuleApiEntryV2 entry=NULL;
+        CHECK(symbol && sizeof(entry)==sizeof(symbol));
+        memcpy(&entry,&symbol,sizeof(entry));
+        api=entry ? entry() : NULL;
+    } else {
+        api=infiltrator_filesystem_api_v2();
+    }
     CHECK(ifs_fs_api_v2_valid(api,"ntfs"));
-    CHECK(api->runtime_profiles==IFS_FS_PROFILE_HOSTED);
+    CHECK(api->runtime_profiles==(firmware ?
+        (IFS_FS_PROFILE_FREESTANDING|IFS_FS_PROFILE_FIRMWARE):
+        IFS_FS_PROFILE_HOSTED));
     const IfsFsCoreOpsV2 *core=(const void *)
         ifs_fs_group_v2(api,IFS_FS_GROUP_CORE);
     CHECK(core && core->probe && core->mount && core->unmount &&
@@ -143,6 +158,7 @@ int main(int argc,char **argv)
     CHECK(volume_ops->query(mounted,&info)==IFS_FS_INVALID);
     CHECK(core->unmount(replacement)==IFS_FS_OK);
     CHECK(close(image.fd)==0);
+    CHECK(!firmware || dlclose(firmware)==0);
     puts("NTFS_COMMON_V2_REAL_NAMESPACE_PASS");
     return 0;
 }
