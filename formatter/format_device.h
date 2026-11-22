@@ -13,8 +13,8 @@ typedef struct {
     bool failed;
     bool have_primary;
     bool have_backup;
-    uint8_t primary[512];
-    uint8_t backup[512];
+    uint8_t primary[4096];
+    uint8_t backup[4096];
 } NtfsFormatDevice;
 
 struct ntfs_device *ntfs_format_device(NtfsFormatDevice *target);
