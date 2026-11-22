@@ -6,7 +6,7 @@ probe=$(realpath "${1:?probe harness}")
 hosted=$(realpath "${2:?namespace harness}")
 module=$(realpath "${3:?installed NTFS.so}")
 format_tool=$(realpath "${4:?Common V2 formatter test executable required}")
-ntfscp_tool=$(realpath "${5:?ntfscp tool}")
+seed_tool=$(realpath "${5:?source-built NTFS fixture seeder required}")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 cd "$work"
@@ -26,8 +26,8 @@ for disk_sector in 512 4096; do
     else
         "$format_tool" good.img
     fi
-    "$ntfscp_tool" -f good.img "$kernel_source" kernel.img
-    "$ntfscp_tool" -f good.img "$initramfs_source" initramfs.img
+    "$seed_tool" good.img "$kernel_source" kernel.img
+    "$seed_tool" good.img "$initramfs_source" initramfs.img
     cp --sparse=always --reflink=auto good.img bad-mft.img
     cp --sparse=always --reflink=auto good.img bad-geometry.img
     cp --sparse=always --reflink=auto good.img dirty-volume.img
