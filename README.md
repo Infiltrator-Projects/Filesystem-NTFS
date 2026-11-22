@@ -6,7 +6,7 @@ Independent filesystem implementation for InfiltratorOS, using the shared Common
 - `/System/Filesystems/NTFS.so`
 - `/System/Resources/Documentation/Filesystem-NTFS.pdf`
 
-The Debian and native installer candidates stage the Common V2 module and its manual. Release 1.0.18 also shipped a separate Linux module. New publication is gated on the firmware reader and qualification.
+The Debian package and source-embedded native installer deliver the Common V2 module and its manual. Only a single `NTFS.so` filesystem provider is shipped; no Linux kernel filesystem module or separate FUSE provider is supplied.
 
 InfiltratorOS calls `--system-package-mode` to build and install the native
 shared object and PDF. Use `--build-only --output DIRECTORY` to build a
@@ -16,19 +16,10 @@ Debian package.
 
 NTFS.so provides probing, read-only mount and verified MFT and bitmap volume
 accounting. Its Common V2 formatter creates NTFS 3.1 data volumes using the
-variant returned by its probe (`1`). It supports both 512-byte logical sectors (including 512e) and genuine
-4096-byte logical sectors (4Kn), with UTF-8 volume labels up to 128 UTF-16
-code units. It creates
-new filesystem structures and leaves unallocated sectors untouched.
+variant returned by its probe (`1`). It accepts genuine 512-, 1024-, 2048- and 4096-byte logical sectors (including 512e and 4Kn), validated by separate formatting, probing and mount tests. UTF-8 volume labels contain up to 128 UTF-16 code units. Formatting creates new filesystem structures and leaves unallocated sectors untouched.
 
 Formatting runs inside NTFS.so and writes through the exclusive Common V2
-host. The [format engine](formatter/README.md) uses libntfs-3g helpers and
-requires no FUSE mount or formatter subprocess. Its separate 512-byte and 4Kn
-regressions create their volume images through the production Common V2 format
-entrypoint; no external mkntfs command is used. External NTFS-3G utilities
-remain in distinct cross-check and file-population tests. The native build extracts its
-NTFS development and test files into temporary storage and installs only the
-FUSE-free NTFS runtime library. Common V2 also exposes read-only physical
+host. The [format engine](formatter/README.md) integrates adapted NTFS-3G helper source at the pinned upstream revision `78414d93613532fd82f3a82aba5d4a1c32898781`, compiled as position-independent objects into `NTFS.so`. The module does not link to a separately installed NTFS-3G or FUSE shared library. Its native source-embedded `.run` carries the required formatter source. Real-media tests create images through Common V2 and seed files using a C test fixture linked to this same embedded source; no `mkntfs`, `ntfscp`, `ntfslabel`, `ntfsfix` or `ntfsresize` executable is invoked. Original code provenance and attribution remain applicable. Common V2 also exposes read-only physical
 extent mapping for regular files. Sparse regions are gaps in the logical
 offsets. Resident data has no separate physical data extent. Compressed,
 encrypted and reparse-point files are outside the map contract. General
