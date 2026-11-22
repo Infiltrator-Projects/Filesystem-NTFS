@@ -31,4 +31,4 @@ chmod 0755 "$out/init/init"
 test -s "$out/vmlinuz" && test -s "$out/initramfs"
 gzip -t "$out/initramfs"
 # The generated archive must actually contain a boot-time /init program.
-gzip -cd "$out/initramfs" | cpio -t --quiet | grep -Fxq './init'
+gzip -cd "$out/initramfs" | cpio -t --quiet | grep -Fx 'init' >/dev/null
