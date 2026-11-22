@@ -42,8 +42,13 @@ mft=int.from_bytes(b[48:56],'little')*cluster
 with open('bad-mft.img','r+b') as f:
     f.seek(mft)
     r=f.read(max(4096,sector)); assert r[:4]==b'FILE'
-    assert int.from_bytes(r[6:8],'little')==int.from_bytes(r[28:32],'little')//logical_sector+1
-    f.seek(mft+logical_sector-2); f.write(bytes([r[logical_sector-2]^1]))
+    record_bytes=int.from_bytes(r[28:32],'little')
+    usa_words=int.from_bytes(r[6:8],'little')
+    assert usa_words>1 and record_bytes % (usa_words-1)==0
+    protected_bytes=record_bytes//(usa_words-1)
+    assert protected_bytes in (512, logical_sector)
+    f.seek(mft+protected_bytes-2)
+    f.write(bytes([r[protected_bytes-2]^1]))
 with open('bad-geometry.img','r+b') as f:
     f.seek(56); f.write(b[48:56])
 # Locate the genuine resident $VOLUME_INFORMATION value in MFT record 3.
