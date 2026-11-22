@@ -121,10 +121,13 @@ int main(int argc,char **argv)
         return 0;
     }
     if (!strcmp(argv[3],"--dirty-volume")) {
-        CHECK(firmware!=NULL);
+        /* Hosted and freestanding CORE.MOUNT must share the exact native
+         * dirty-volume denial. Neither profile may accept a metadata
+         * snapshot that requires NTFS journal replay. */
         CHECK(core->mount(&host,&mounted,&info)==IFS_FS_UNSUPPORTED &&
               !mounted);
-        CHECK(close(image.fd)==0 && dlclose(firmware)==0);
+        CHECK(close(image.fd)==0);
+        CHECK(!firmware || dlclose(firmware)==0);
         return 0;
     }
     CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK && mounted);
