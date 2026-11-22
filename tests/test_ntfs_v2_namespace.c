@@ -29,6 +29,37 @@ static void release(void *unused,void *p)
 #define CHECK(v) do { if (!(v)) { \
     fprintf(stderr,"NTFS V2 media check failed at %d: %s\n",__LINE__,#v); \
     return 1; } } while(0)
+
+/* Compare the genuine on-disk boot payload, not just file names or a tiny
+ * synthetic buffer. Read in bounded chunks so kernel sizes do not inflate
+ * the test host's stack or require a single huge CORE transfer. */
+static int verify_payload(const IfsFsCoreOpsV2 *core,void *mount,
+                          const char *disk_path,const char *source_path)
+{
+    struct stat st;
+    CHECK(stat(source_path,&st)==0 && st.st_size>0 &&
+          (uint64_t)st.st_size<=64u*1024u*1024u);
+    int fd=open(source_path,O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
+    CHECK(fd>=0);
+    uint8_t expected[65536],actual[65536];
+    for(uint64_t offset=0u;offset<(uint64_t)st.st_size;) {
+        uint64_t pending=(uint64_t)st.st_size-offset;
+        uint32_t count=pending>sizeof(expected)?
+            (uint32_t)sizeof(expected):(uint32_t)pending;
+        size_t got=0u;
+        while(got<count) {
+            ssize_t n=pread(fd,expected+got,count-got,(off_t)(offset+got));
+            CHECK(n>0);
+            got+=(size_t)n;
+        }
+        CHECK(core->read(mount,disk_path,offset,actual,count)==IFS_FS_OK);
+        CHECK(memcmp(expected,actual,count)==0);
+        offset+=count;
+    }
+    CHECK(close(fd)==0);
+    return 0;
+}
+
 int main(int argc,char **argv)
 {
     if (argc!=4 && argc!=5 && argc!=6)return 2;
@@ -114,11 +145,20 @@ int main(int argc,char **argv)
           entry.type==IFS_FS_ENTRY_DIRECTORY);
     CHECK(core->stat(mounted,"/kernel.img",&entry)==IFS_FS_OK &&
           entry.type==IFS_FS_ENTRY_FILE);
-    struct stat source;
+    struct stat source,initramfs;
+    const char *basename=strrchr(argv[2],'/');
+    CHECK(basename);
+    const size_t prefix=(size_t)(basename-argv[2])+1u;
+    char initramfs_source[4096];
+    CHECK(prefix+sizeof("initramfs")<=sizeof(initramfs_source));
+    memcpy(initramfs_source,argv[2],prefix);
+    memcpy(initramfs_source+prefix,"initramfs",sizeof("initramfs"));
     CHECK(stat(argv[2],&source)==0 && source.st_size>0 &&
-          source.st_size<=131072);
+          (uint64_t)source.st_size<=image.bytes);
+    CHECK(stat(initramfs_source,&initramfs)==0 && initramfs.st_size>0 &&
+          (uint64_t)initramfs.st_size<=image.bytes);
     CHECK(entry.size_bytes==(uint64_t)source.st_size);
-    int found=0,ended=0;
+    int found_kernel=0,found_initramfs=0,ended=0;
     for (uint32_t i=0u;i<1024u;++i) {
         int rc=core->directory_entry(mounted,"/",i,&entry);
         if (rc==IFS_FS_END){ended=1;break;}
@@ -128,29 +168,27 @@ int main(int argc,char **argv)
         if (!strcmp(name,"kernel.img")) {
             CHECK(entry.type==IFS_FS_ENTRY_FILE &&
                   entry.size_bytes==(uint64_t)source.st_size);
-            ++found;
+            ++found_kernel;
+        }
+        if (!strcmp(name,"initramfs.img")) {
+            CHECK(entry.type==IFS_FS_ENTRY_FILE &&
+                  entry.size_bytes==(uint64_t)initramfs.st_size);
+            ++found_initramfs;
         }
     }
-    CHECK(found==1 && ended);
-    /* The same independently formatted image contains two real boot payloads.
-     * Firmware must walk the directory and recover the initramfs bytes too. */
+    CHECK(found_kernel==1 && found_initramfs==1 && ended);
     CHECK(core->stat(mounted,"/initramfs.img",&entry)==IFS_FS_OK &&
           entry.type==IFS_FS_ENTRY_FILE &&
-          entry.size_bytes==(uint64_t)source.st_size);
-    uint8_t expected[131072],actual[131072];
-    int input=open(argv[2],O_RDONLY|O_CLOEXEC);
+          entry.size_bytes==(uint64_t)initramfs.st_size);
+    CHECK(verify_payload(core,mounted,"/kernel.img",argv[2])==0);
+    CHECK(verify_payload(core,mounted,"/initramfs.img",initramfs_source)==0);
+    uint8_t expected_prefix[32]={0},actual[32]={0};
+    int input=open(argv[2],O_RDONLY|O_CLOEXEC|O_NOFOLLOW);
     CHECK(input>=0);
-    CHECK(read(input,expected,(size_t)source.st_size)==source.st_size);
-    CHECK(close(input)==0);
-    CHECK(core->read(mounted,"/kernel.img",0u,actual,
-                     (uint32_t)source.st_size)==IFS_FS_OK);
-    CHECK(!memcmp(expected,actual,(size_t)source.st_size));
-    memset(actual,0,sizeof(actual));
-    CHECK(core->read(mounted,"/initramfs.img",0u,actual,
-                     (uint32_t)source.st_size)==IFS_FS_OK);
-    CHECK(!memcmp(expected,actual,(size_t)source.st_size));
-    CHECK(core->read(mounted,"/kernel.img",5u,actual,17u)==IFS_FS_OK);
-    CHECK(!memcmp(expected+5,actual,17u));
+    CHECK(pread(input,expected_prefix,17u,5)==17 &&
+          close(input)==0);
+    CHECK(core->read(mounted,"/kernel.img",5u,actual,17u)==IFS_FS_OK &&
+          memcmp(expected_prefix,actual,17u)==0);
     CHECK(core->read(mounted,"/kernel.img",(uint64_t)source.st_size,
                      actual,0u)==IFS_FS_OK);
     CHECK(core->read(mounted,"/kernel.img",(uint64_t)source.st_size,
@@ -164,9 +202,8 @@ int main(int argc,char **argv)
     CHECK(core->read(mounted,"/kernel.img",0u,actual,16u)==IFS_FS_INVALID);
     CHECK(core->unmount(mounted)==IFS_FS_INVALID);
     CHECK(volume_ops->query(peer,&info)==IFS_FS_OK);
-    CHECK(core->read(peer,"/kernel.img",0u,actual,
-                     (uint32_t)source.st_size)==IFS_FS_OK);
-    CHECK(!memcmp(expected,actual,(size_t)source.st_size));
+    CHECK(verify_payload(core,peer,"/kernel.img",argv[2])==0);
+    CHECK(verify_payload(core,peer,"/initramfs.img",initramfs_source)==0);
     CHECK(core->unmount(peer)==IFS_FS_OK);
     CHECK(volume_ops->query(peer,&info)==IFS_FS_INVALID);
     void *replacement=NULL;
