@@ -338,16 +338,56 @@ static int name_utf8(const uint8_t *key,uint32_t key_len,
     name[n]=0;*written=n;
     return IFS_FS_OK;
 }
-static int equal_name(const char *a,size_t n,const char *b,size_t m)
+/* Decode one shortest-form UTF-8 scalar for exact NTFS name matching.
+ * The filesystem stores UTF-16BE/LE keys, but the Common V2 boundary exposes
+ * UTF-8. Noncanonical input must be rejected, not ambiguously normalized.
+ * Supplementary-plane scalars compare by their unchanged surrogate pair:
+ * NTFS $UpCase provides a one-code-unit table only. */
+static int next_utf8(const char *s,size_t bytes,size_t *pos,uint32_t *cp)
 {
-    if(n!=m)return 0;
-    for(size_t i=0;i<n;++i) {
-        unsigned char x=(unsigned char)a[i],y=(unsigned char)b[i];
-        if(x>='A' && x<='Z')x=(unsigned char)(x+32u);
-        if(y>='A' && y<='Z')y=(unsigned char)(y+32u);
+    if(*pos>=bytes)return IFS_FS_INVALID;
+    const unsigned char first=(unsigned char)s[(*pos)++];
+    uint32_t value=first;
+    unsigned need=0u;
+    if(first>=0xc2u && first<=0xdfu) {
+        value=first&31u;need=1u;
+    } else if(first>=0xe0u && first<=0xefu) {
+        value=first&15u;need=2u;
+    } else if(first>=0xf0u && first<=0xf4u) {
+        value=first&7u;need=3u;
+    } else if(first>=0x80u)
+        return IFS_FS_INVALID;
+    if(need>bytes-*pos)return IFS_FS_INVALID;
+    for(unsigned i=0u;i<need;++i) {
+        const unsigned char part=(unsigned char)s[(*pos)++];
+        if((part&0xc0u)!=0x80u)return IFS_FS_INVALID;
+        value=(value<<6u)|(part&63u);
+    }
+    if((need==1u && value<0x80u) ||
+       (need==2u && value<0x800u) ||
+       (need==3u && value<0x10000u) ||
+       value>0x10ffffu ||
+       (value>=0xd800u && value<=0xdfffu) ||
+       value==0u || value=='/')
+        return IFS_FS_INVALID;
+    *cp=value;
+    return IFS_FS_OK;
+}
+static int equal_name(const NtfsReadOnlyV2 *v,const char *a,size_t n,
+                      const char *b,size_t m)
+{
+    size_t i=0u,j=0u;
+    if(!v->upcase)return -1;
+    while(i<n && j<m) {
+        uint32_t x=0u,y=0u;
+        if(next_utf8(a,n,&i,&x)!=IFS_FS_OK ||
+           next_utf8(b,m,&j,&y)!=IFS_FS_OK)
+            return -1;
+        if(x<UINT32_C(65536))x=U16(v->upcase+2u*x);
+        if(y<UINT32_C(65536))y=U16(v->upcase+2u*y);
         if(x!=y)return 0;
     }
-    return 1;
+    return i==n && j==m ? 1 : 0;
 }
 typedef struct {
     const char *wanted;
@@ -410,7 +450,7 @@ static int index_walk(NtfsReadOnlyV2 *v,const uint8_t *header,
             int rc=index_child(v,allocation,allocation_bytes,
                                index_bytes,vcn,find,depth);
             if(rc!=IFS_FS_OK)return rc;
-            if(find->found)return IFS_FS_OK;
+            if(find->found && !find->wanted)return IFS_FS_OK;
         }
         if(!(flags&2u)) {
             if(n<16u+keylen+((flags&1u)?8u:0u))
@@ -419,17 +459,23 @@ static int index_walk(NtfsReadOnlyV2 *v,const uint8_t *header,
             int rc=name_utf8(item+16u,keylen,name,&length_name,&dos);
             if(rc!=IFS_FS_OK)return rc;
             if(!dos) {
-                if((find->wanted && equal_name(name,length_name,
-                                               find->wanted,find->wanted_length)) ||
-                   (!find->wanted && find->index--==0u)) {
+                int match=0;
+                if(find->wanted) {
+                    match=equal_name(v,name,length_name,find->wanted,
+                                     find->wanted_length);
+                    if(match<0)return IFS_FS_INVALID;
+                } else match=find->index--==0u;
+                if(match) {
+                    /* An exact case-folded directory key must resolve
+                     * uniquely. Even a fully parseable second index entry
+                     * cannot override the first after catalogue traversal. */
+                    if(find->found)return IFS_FS_CORRUPT;
                     uint64_t reference=U64(item);
-                    /* NTFS MFT record zero is the real $MFT system file.
-                     * It is a valid directory reference, not a null ID. */
                     find->reference=reference;
                     memcpy(find->name,name,length_name+1u);
                     find->name_length=length_name;
                     find->found=1;
-                    return IFS_FS_OK;
+                    if(!find->wanted)return IFS_FS_OK;
                 }
             }
         }
