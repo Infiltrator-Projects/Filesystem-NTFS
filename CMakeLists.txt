@@ -136,10 +136,15 @@ if(BUILD_TESTING)
  target_compile_options(ntfs-v2-format-test PRIVATE -Wall -Wextra -Wpedantic -Werror)
  target_include_directories(ntfs-v2-format-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/native")
  target_link_libraries(ntfs-v2-format-test PRIVATE ntfs-driver ntfs-legacy-test-support InfiltratrCommon::Common SQLite::SQLite3 OpenSSL::Crypto)
- find_program(NTFS_COPY_TOOL ntfscp REQUIRED)
+ # The disposable media seeder is compiled from the source-embedded NTFS
+ # helpers. No distribution NTFS filesystem utility is needed by CTest.
+ add_executable(ntfs-native-seed-media tests/native_seed_media.c)
+ target_include_directories(ntfs-native-seed-media SYSTEM PRIVATE "${NTFS3G_INCLUDE_DIR}")
+ target_compile_options(ntfs-native-seed-media PRIVATE -Wall -Wextra -Werror)
+ target_link_libraries(ntfs-native-seed-media PRIVATE "${NTFS3G_LIBRARY}" Threads::Threads)
  add_test(NAME ntfs-native-v2-format
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_format.sh"
-    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_COPY_TOOL}")
+    "$<TARGET_FILE:ntfs-v2-format-test>" "$<TARGET_FILE:ntfs-native-seed-media>")
  add_test(NAME ntfs-native-v2-format-1024
   COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_ntfs_4kn.sh"
     "$<TARGET_FILE:ntfs-v2-format-test>" 1024)
@@ -176,7 +181,7 @@ if(BUILD_TESTING)
  target_link_libraries(ntfs-v2-namespace-test PRIVATE ntfs-driver InfiltratrCommon::Common ${CMAKE_DL_LIBS})
  add_test(NAME ntfs-v2-real-media-namespace
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/ntfs-v2-namespace.sh"
-   "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}" "$<TARGET_FILE:ntfs-v2-format-test>")
+   "$<TARGET_FILE:ntfs-v2-namespace-test>" "$<TARGET_FILE:ntfs-native-seed-media>" "$<TARGET_FILE:ntfs-v2-format-test>")
  add_executable(ntfs-disk-media tests/test_disk_media.c)
  target_compile_options(ntfs-disk-media PRIVATE -Wall -Wextra -Wpedantic -Werror)
  target_include_directories(ntfs-disk-media PRIVATE "${infiltratr_common_SOURCE_DIR}/include")
@@ -184,7 +189,7 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-native-disk-sectors
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/disk-media.sh"
     "$<TARGET_FILE:ntfs-disk-media>" "$<TARGET_FILE:ntfs-v2-namespace-test>" "$<TARGET_FILE:ntfs-driver>"
-    "$<TARGET_FILE:ntfs-v2-format-test>" "${NTFS_COPY_TOOL}")
+    "$<TARGET_FILE:ntfs-v2-format-test>" "$<TARGET_FILE:ntfs-native-seed-media>")
  add_test(NAME ntfs-production-v2-only
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")
