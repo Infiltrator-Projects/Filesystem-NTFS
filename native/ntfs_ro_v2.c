@@ -642,6 +642,115 @@ int ntfs_ro_query_v2(NtfsReadOnlyV2 *v,IfsFsVolumeInfoV2 *info)
     };
     return IFS_FS_OK;
 }
+/* Decode every mapping pair twice: first validate the full stream, then
+ * publish only verified extents to the caller. The same native runlist reader
+ * drives hosted DEFRAG.MAP and the freestanding CORE.READ path. No host
+ * pathname, libntfs-3g or secondary filesystem map is consulted. */
+static int map_runs_v2(NtfsReadOnlyV2 *v,const uint8_t *attr,uint32_t size,
+                       uint64_t logical_bytes,uint64_t first,
+                       IfsFsExtentV2 *out,uint32_t capacity,uint32_t *written)
+{
+    const uint32_t cluster=v->geometry.cluster_bytes;
+    if(!cluster || size<64u || attr[8u]!=1u)return IFS_FS_UNSUPPORTED;
+    const uint64_t needed=logical_bytes/cluster+
+                          (logical_bytes%cluster!=0u);
+    if(!needed)return IFS_FS_END;
+    uint32_t produced=0u;
+    for(unsigned pass=0u;pass<2u;++pass) {
+        uint32_t at=U16(attr+32u);
+        uint64_t vcn=0u,lcn=0u,page=0u;
+        int terminated=0;
+        if(at<64u || at>=size)return IFS_FS_CORRUPT;
+        for(unsigned count=0u;count<65536u && at<size;++count) {
+            const uint8_t tag=attr[at++];
+            if(!tag){terminated=1;break;}
+            const uint32_t length_bytes=tag&15u,delta_bytes=tag>>4u;
+            if(!length_bytes || length_bytes>8u || delta_bytes>8u ||
+               length_bytes+delta_bytes>size-at)
+                return IFS_FS_CORRUPT;
+            uint64_t clusters=0u,delta=0u;
+            for(uint32_t i=0u;i<length_bytes;++i)
+                clusters|=(uint64_t)attr[at+i]<<(8u*i);
+            if(!clusters || clusters>UINT64_MAX-vcn)
+                return IFS_FS_CORRUPT;
+            at+=length_bytes;
+            if(delta_bytes) {
+                for(uint32_t i=0u;i<delta_bytes;++i)
+                    delta|=(uint64_t)attr[at+i]<<(8u*i);
+                if(attr[at+delta_bytes-1u]&0x80u) {
+                    const uint64_t magnitude=delta_bytes==8u?
+                        (~delta)+1u:
+                        (UINT64_C(1)<<(8u*delta_bytes))-delta;
+                    if(!magnitude || magnitude>lcn)
+                        return IFS_FS_CORRUPT;
+                    lcn-=magnitude;
+                } else {
+                    if(lcn>v->geometry.cluster_count ||
+                       delta>v->geometry.cluster_count-lcn)
+                        return IFS_FS_CORRUPT;
+                    lcn+=delta;
+                }
+                if(lcn>=v->geometry.cluster_count ||
+                   clusters>v->geometry.cluster_count-lcn)
+                    return IFS_FS_CORRUPT;
+            }
+            at+=delta_bytes;
+            if(delta_bytes && vcn<needed) {
+                const uint64_t logical=vcn*(uint64_t)cluster;
+                const uint64_t remaining=logical_bytes-logical;
+                uint64_t length=clusters*(uint64_t)cluster;
+                if(clusters>UINT64_MAX/cluster)return IFS_FS_CORRUPT;
+                if(length>remaining)length=remaining;
+                if(pass && page>=first && produced<capacity) {
+                    out[produced++]=(IfsFsExtentV2){
+                        .logical_offset=logical,
+                        .physical_offset=lcn*(uint64_t)cluster,
+                        .length=length
+                    };
+                }
+                if(page==UINT64_MAX)return IFS_FS_CORRUPT;
+                ++page;
+            }
+            vcn+=clusters;
+        }
+        if(!terminated || vcn<needed)return IFS_FS_CORRUPT;
+    }
+    *written=produced;
+    return produced?IFS_FS_OK:IFS_FS_END;
+}
+int ntfs_ro_map_v2(NtfsReadOnlyV2 *v,const char *path,uint64_t first,
+                   IfsFsExtentV2 *extents,uint32_t capacity,uint32_t *written)
+{
+    if(!written)return IFS_FS_INVALID;
+    *written=0u;
+    if(!v || !path || !extents || !capacity)return IFS_FS_INVALID;
+    uint64_t reference=0u;
+    char name[768];
+    size_t name_length=0u;
+    int rc=resolve(v,path,&reference,name,&name_length);
+    if(rc!=IFS_FS_OK)return rc;
+    uint8_t *record=NULL;
+    rc=record_load(v,reference,&record);
+    if(rc!=IFS_FS_OK)return rc;
+    if(U16(record+22u)&2u)rc=IFS_FS_UNSUPPORTED;
+    else {
+        const uint8_t *reparse=NULL,*data=NULL;
+        uint32_t reparse_bytes=0u,data_bytes=0u;
+        uint64_t length=0u;
+        rc=attribute(record,v->geometry.record_bytes,NTFS_ATTR_REPARSE,
+                     NULL,&reparse,&reparse_bytes);
+        if(rc==IFS_FS_OK)rc=IFS_FS_UNSUPPORTED;
+        else if(rc==IFS_FS_NOT_FOUND) {
+            rc=file_data(v,record,&data,&data_bytes,&length);
+            if(rc==IFS_FS_OK)
+                rc=map_runs_v2(v,data,data_bytes,length,first,
+                               extents,capacity,written);
+        }
+    }
+    drop(v,record);
+    if(rc!=IFS_FS_OK)*written=0u;
+    return rc;
+}
 int ntfs_ro_stat_v2(NtfsReadOnlyV2 *v,const char *path,IfsFsEntryV2 *out)
 {
     if(!v)return IFS_FS_INVALID;
