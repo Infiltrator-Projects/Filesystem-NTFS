@@ -50,7 +50,7 @@ def ntfs_runtime_package():
 def install_deps():
     packages = ("build-essential", "binutils", "cmake", "git", "pkg-config",
                 "libssl-dev", "libsqlite3-dev", "dpkg-dev",
-                "autoconf", "automake", "libtool")
+                "autoconf", "automake", "libtool", "libgcrypt20-dev")
     tools = ("cc", "c++", "make", "cmake", "git", "readelf", "nm",
              "dpkg-deb", "dpkg-query", "dpkg-architecture", "pkg-config", "ctest")
     prefix = [] if os.geteuid() == 0 else ["sudo"]
