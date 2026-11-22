@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include "ntfs_native.h"
 #include "ntfs_disk.h"
+#include "ntfs_ro_v2.h"
 #include "../formatter/format_device.h"
 /* The real NTFS MFT and $Bitmap readers run against Common V2 host I/O,
  * not a copied device path. Only a completely qualified, clean volume may
@@ -16,6 +17,7 @@ typedef struct {
     IfsFsHostRuntimeV2 host;
     NtfsVolume media;
     NtfsLayout layout;
+    NtfsReadOnlyV2 *reader;
     uint64_t free_clusters;
 } MountedNtfs;
 /* Non-recycled tokens prevent stale pointers from being reused by subsequent
@@ -130,8 +132,21 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
         return IFS_FS_CORRUPT;
     }
     volume->free_clusters = total - used;
+    /* The freestanding and hosted V2 CORE operations must use identical
+     * source-owned parsing and dirty-volume/unsupported-feature policy.
+     * Keep the existing source-owned layout only for DEFRAG.MAP and VOLUME
+     * accounting; it must not serve file bytes or pathname traversal. */
+    IfsFsVolumeInfoV2 reader_info={.structure_bytes=sizeof(reader_info)};
+    result=ntfs_ro_open_v2(&volume->host,&volume->reader,&reader_info);
+    if(result!=IFS_FS_OK) {
+        ntfs_layout_free(&volume->layout);
+        ntfs_close_volume(&volume->media);
+        host->release(host->context, volume);
+        return result;
+    }
     result = fill_volume(volume, info);
     if (result != IFS_FS_OK) {
+        ntfs_ro_close_v2(volume->reader);
         ntfs_layout_free(&volume->layout);
         ntfs_close_volume(&volume->media);
         host->release(host->context, volume);
@@ -155,6 +170,7 @@ static int native_unmount(void *handle)
         }
     }
     IfsFsHostRuntimeV2 host=volume->host;
+    ntfs_ro_close_v2(volume->reader);
     ntfs_layout_free(&volume->layout);
     ntfs_close_volume(&volume->media);
     host.release(host.context, volume);
@@ -190,23 +206,23 @@ static const IfsFsVolumeOpsV2 volume_ops = {
 static int stat_file(void *handle, const char *path, IfsFsEntryV2 *entry)
 {
     const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
-    return ifs_ntfs_stat_readonly_v2(&volume->host, path, entry);
+    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    return ntfs_ro_stat_v2(volume->reader, path, entry);
 }
 static int list_file(void *handle, const char *path, uint32_t index,
                      IfsFsEntryV2 *entry)
 {
     const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
-    return ifs_ntfs_list_readonly_v2(&volume->host, path, index, entry);
+    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    return ntfs_ro_list_v2(volume->reader, path, index, entry);
 }
 static int read_file(void *handle, const char *path, uint64_t offset,
                      void *destination, uint32_t length)
 {
     const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
-    return ifs_ntfs_read_readonly_v2(&volume->host, path, offset,
-                                    destination, length);
+    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    return ntfs_ro_read_v2(volume->reader, path, offset,
+                           destination, length);
 }
 
 static const IfsFsCoreOpsV2 core = {
