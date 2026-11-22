@@ -41,7 +41,7 @@ add_custom_command(OUTPUT "${NTFS_FIRMWARE_ELF}"
    "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}" "-DCOMMON_INCLUDE_DIR=${infiltratr_common_SOURCE_DIR}/include"
  COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_CURRENT_BINARY_DIR}/firmware"
  DEPENDS module/firmware/CMakeLists.txt module/firmware/runtime.c module/firmware/descriptor.c
-   native/ntfs_disk.c native/ntfs_disk.h
+   native/ntfs_disk.c native/ntfs_disk.h native/ntfs_ro_v2.c native/ntfs_ro_v2.h
    "${infiltratr_common_SOURCE_DIR}/include/infiltratr/filesystem_module_v2.h"
  VERBATIM)
 add_custom_target(ntfs-firmware DEPENDS "${NTFS_FIRMWARE_ELF}")
