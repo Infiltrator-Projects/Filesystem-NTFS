@@ -226,8 +226,13 @@ static int stream_read(NtfsReadOnlyV2 *v,const uint8_t *a,uint32_t size,
     }
     return IFS_FS_OK;
 }
-static int record_load(NtfsReadOnlyV2 *v,uint64_t record,uint8_t **output)
+static int record_load(NtfsReadOnlyV2 *v,uint64_t reference,uint8_t **output)
 {
+    /* MFT indexes occupy the low 48 bits of an NTFS file reference. Its
+     * upper sequence rejects stale links after record reuse; direct system
+     * record lookups carry zero to mean that no sequence was supplied. */
+    uint64_t record=reference&UINT64_C(0x0000ffffffffffff);
+    uint16_t sequence=(uint16_t)(reference>>48u);
     if(record>UINT64_MAX/v->geometry.record_bytes)
         return IFS_FS_CORRUPT;
     uint64_t pos=record*v->geometry.record_bytes;
@@ -243,6 +248,8 @@ static int record_load(NtfsReadOnlyV2 *v,uint64_t record,uint8_t **output)
     if(rc==IFS_FS_OK)rc=fixup(p,v->geometry.record_bytes,"FILE");
     if(rc==IFS_FS_OK && !(U16(p+22u)&1u))
         rc=IFS_FS_NOT_FOUND;
+    if(rc==IFS_FS_OK && sequence && U16(p+16u)!=sequence)
+        rc=IFS_FS_CORRUPT;
     if(rc!=IFS_FS_OK) {drop(v,p);return rc;}
     *output=p;
     return IFS_FS_OK;
@@ -380,7 +387,7 @@ static int index_walk(NtfsReadOnlyV2 *v,const uint8_t *header,
                 if((find->wanted && equal_name(name,length_name,
                                                find->wanted,find->wanted_length)) ||
                    (!find->wanted && find->index--==0u)) {
-                    uint64_t reference=U64(item)&UINT64_C(0x0000ffffffffffff);
+                    uint64_t reference=U64(item);
                     /* NTFS MFT record zero is the real $MFT system file.
                      * It is a valid directory reference, not a null ID. */
                     find->reference=reference;
