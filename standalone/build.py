@@ -36,72 +36,27 @@ def installed(package):
         ["dpkg-query", "-W", "-f=${Status}", package], capture_output=True,
         text=True).stdout.strip() == "install ok installed"
 
-def ntfs_runtime_package():
-    packages = ("libntfs-3g89t64", "libntfs-3g89")
-    for package in packages:
-        if installed(package):
-            return package
-    for package in packages:
-        query = subprocess.run(["apt-cache", "show", package], capture_output=True, text=True)
-        if f"Package: {package}" in query.stdout.splitlines():
-            return package
-    return None
-
 def install_deps():
+    # Only build-system tooling is installed. The source-embedded native
+    # formatter never needs distribution NTFS utilities or runtime libraries.
     packages = ("build-essential", "binutils", "cmake", "git", "pkg-config",
                 "libssl-dev", "libsqlite3-dev", "dpkg-dev",
                 "autoconf", "automake", "libtool", "libgcrypt20-dev")
     tools = ("cc", "c++", "make", "cmake", "git", "readelf", "nm",
-             "dpkg-deb", "dpkg-query", "dpkg-architecture", "pkg-config", "ctest")
-    prefix = [] if os.geteuid() == 0 else ["sudo"]
-    apt = [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=-1"]
-    runtime = ntfs_runtime_package()
-    if not runtime or not all(installed(p) for p in packages) or any(
+             "dpkg-deb", "dpkg-query", "pkg-config", "ctest", "autoreconf")
+    if not all(installed(p) for p in packages) or any(
             shutil.which(cmd) is None for cmd in tools):
-        run([*apt, "update"])
-        runtime = ntfs_runtime_package()
-        if not runtime:
-            raise RuntimeError("The distribution does not provide libntfs-3g.so.89")
-        run([*apt, "install", "-y", "--no-install-recommends", *packages])
-    return runtime
-
-def ntfs_build_inputs(directory, runtime):
-    # External NTFS test programs are still extracted in disposable build
-    # scratch. The formatter itself links only the pinned, source-built,
-    # position-independent helper archive shipped in the source RUN.
-    directory.mkdir()
-    packages = ("ntfs-3g", runtime)
-    command = ["apt-get", "-o", "Acquire::Retries=3", "download", *packages]
-    try:
-        run(command, cwd=directory)
-    except subprocess.CalledProcessError:
         prefix = [] if os.geteuid() == 0 else ["sudo"]
-        run([*prefix, "apt-get", "update"])
-        run(command, cwd=directory)
-    root = directory / "root"
-    for package in packages:
-        archives = list(directory.glob(f"{package}_*.deb"))
-        if len(archives) != 1:
-            raise RuntimeError(f"Expected one APT archive for {package}")
-        run(["dpkg-deb", "-x", archives[0], root])
-    triplet = subprocess.check_output(
-        ["dpkg-architecture", "-qDEB_HOST_MULTIARCH"], text=True).strip()
-    library = next((root / d / "libntfs-3g.so.89"
-                    for d in (f"usr/lib/{triplet}", f"lib/{triplet}", "usr/lib", "lib")
-                    if (root / d / "libntfs-3g.so.89").is_file()), None)
-    if not library:
-        raise RuntimeError("Disposable NTFS test fixture runtime unavailable")
-    extra = ["-DCMAKE_SKIP_RPATH=ON"]
-    for variable, tool in (("NTFS_COPY_TOOL", "ntfscp"),):
-        found = next((root / d / tool for d in ("usr/bin", "usr/sbin", "bin", "sbin")
-                      if (root / d / tool).is_file()), None)
-        if not found:
-            raise RuntimeError(f"The extracted NTFS test tools are missing {tool}")
-        extra.append(f"-D{variable}={found}")
-    environment = os.environ.copy()
-    existing = environment.get("LD_LIBRARY_PATH")
-    environment["LD_LIBRARY_PATH"] = str(library.parent) + (":" + existing if existing else "")
-    return extra, environment
+        apt = [*prefix, "apt-get", "-o", "DPkg::Lock::Timeout=-1"]
+        run([*apt, "update"])
+        run([*apt, "install", "-y", "--no-install-recommends", *packages])
+    return None
+
+def ntfs_build_inputs(directory, _unused_runtime):
+    directory.mkdir()
+    if not (NTFS_HELPERS / "SOURCE-REVISION").is_file():
+        raise RuntimeError("Missing source-embedded NTFS formatter helper revision")
+    return ["-DCMAKE_SKIP_RPATH=ON"], os.environ.copy()
 
 def prepare_release_source():
     if not ENGINE:
@@ -218,7 +173,9 @@ def build(profile, module, runtime):
                      if ENGINE else [])
             ntfs_options, test_environment = ntfs_build_inputs(Path(temporary) / "ntfs-sdk", runtime)
             extra.extend(ntfs_options)
-            test_environment["LD_LIBRARY_PATH"] = str(dest) + ":" + test_environment["LD_LIBRARY_PATH"]
+            prior_library_path = test_environment.get("LD_LIBRARY_PATH", "")
+            test_environment["LD_LIBRARY_PATH"] = str(dest) + (
+                ":" + prior_library_path if prior_library_path else "")
 
             def compile_build(*options):
                 run(["cmake", "--build", dest, *options, "--parallel", "2"],
@@ -262,6 +219,7 @@ def main():
     parser.add_argument("--output", type=Path, default=ROOT / "build" / NAME)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
+    prepare_release_source()
     runtime = install_deps()
     flags = build(args.profile, args.output.resolve(), runtime)
     if args.check:
