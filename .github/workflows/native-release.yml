@@ -107,7 +107,7 @@ jobs:
             gh release create "$tag" dist/*.deb dist/*.run dist/SHA256SUMS.txt \
               --target "$GITHUB_SHA" \
               --title "NTFS Common V2 native read-only filesystem $version" \
-              --notes "Native source-owned NTFS read-only firmware ELF and hosted V2 module. Packaged .deb and .run have passed genuine 512-byte and 4Kn NTFS kernel/initramfs file reads, MFT/checksum and dirty-volume negative tests, with unchanged source media. No V1 public export or .ko asset; firmware profile is import-free. Hosted/firmware source convergence and future V2 BOOT/OVMF handoff still require separate qualification."
+              --notes "Native source-owned NTFS read-only firmware ELF and hosted V2 module. Packaged .deb and .run have passed genuine 512-byte and 4Kn NTFS kernel/initramfs file reads, MFT/checksum and dirty-volume negative tests, with unchanged source media. No V1 public export or .ko asset; firmware profile is import-free. Hosted CORE and DEFRAG.MAP now use the same native NTFS reader as the embedded freestanding ELF; actual future BOOT V2/OVMF handoff is not yet qualified."
           fi
           mkdir -p "$RUNNER_TEMP/released"
           gh release download "$tag" -p '*.deb' -p '*.run' --dir "$RUNNER_TEMP/released"
