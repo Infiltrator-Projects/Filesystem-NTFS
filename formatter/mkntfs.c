@@ -4065,8 +4065,10 @@ int ifs_ntfs_format(const IfsFsHostRuntimeV2 *host, uint32_t variant,
         return IFS_FS_INVALID;
     if (host->capabilities & IFS_FS_HOST_READ_ONLY)
         return IFS_FS_ACCESS;
+    const uint32_t sector_bytes = host->logical_sector_bytes;
     if (flags || variant != 1u ||
-        (host->logical_sector_bytes != 512u && host->logical_sector_bytes != 4096u))
+        sector_bytes < 512u || sector_bytes > 4096u ||
+        (sector_bytes & (sector_bytes - 1u)) != 0u)
         return IFS_FS_UNSUPPORTED;
     if (host->volume_bytes < UINT64_C(8) * 1024u * 1024u ||
         host->volume_bytes > (UINT64_C(1) << 48) ||
