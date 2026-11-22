@@ -40,6 +40,8 @@ MEDIA
         done
         "$hosted" good.img source --read "$host_sector"
         "$hosted" bad-mft.img source --bad-mft "$host_sector"
+        "$hosted" good.img source --read "$host_sector" "$work/reader.elf"
+        "$hosted" bad-mft.img source --bad-mft "$host_sector" "$work/reader.elf"
     done
     sha256sum -c media.sha
 done
