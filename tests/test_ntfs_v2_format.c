@@ -303,6 +303,60 @@ done:
     return status;
 }
 
+/* Cross-check the UTF-16 volume label through this project's independent
+ * native MFT parser, not an external ntfslabel command or test subprocess.
+ * This function has read-only host permissions and must never mutate media. */
+static int check_native_volume_label(const char *path)
+{
+    Image image = {.fd = open(path, O_RDONLY | O_NOFOLLOW), .sector_bytes = 512u};
+    NtfsVolume volume = {.fd = -1};
+    NtfsLayout layout = {0};
+    NtfsAttributeVec attributes = {0};
+    uint8_t *raw = NULL, *fixed = NULL;
+    char *error = NULL;
+    int result = 1;
+    const uint8_t expected[] = {
+        'C', 0, 'a', 0, 'f', 0, 0xe9, 0, ' ', 0,
+        0x3d, 0xd8, 0x80, 0xde
+    };
+    CHECK(image.fd >= 0);
+    const IfsFsHostRuntimeV2 host = {
+        .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
+        .capabilities = IFS_FS_HOST_READ_ONLY, .volume_bytes = IMAGE_BYTES,
+        .logical_sector_bytes = 512u, .physical_sector_bytes = 4096u,
+        .maximum_transfer_bytes = 4096u, .context = &image,
+        .read_at = read_at, .allocate = allocate, .release = release,
+    };
+    CHECK(ntfs_open_host(&host, &volume, &error) == 0);
+    CHECK(ntfs_read_layout(&volume, false, &layout, &error) == 0);
+    CHECK(ntfs_read_record(&volume, &layout.mft_runs, 3u, &raw, &fixed, &error) == 0);
+    CHECK(ntfs_parse_attributes(fixed, volume.record_size, &attributes, &error) == 0);
+    unsigned matched = 0;
+    for (size_t i = 0; i < attributes.count; ++i) {
+        const NtfsAttribute *a = &attributes.items[i];
+        if (a->type != UINT32_C(0x60)) continue;
+        CHECK(!a->nonresident && a->length >= 24u);
+        const uint32_t value_len = ntfs_u32(fixed, a->offset + 16u);
+        const uint32_t value_off = ntfs_u16(fixed, a->offset + 20u);
+        CHECK(value_off >= 24u && value_off <= a->length);
+        CHECK(value_len == sizeof(expected) && value_len <= a->length - value_off);
+        CHECK(memcmp(fixed + a->offset + value_off, expected, sizeof(expected)) == 0);
+        ++matched;
+    }
+    CHECK(matched == 1u);
+    result = 0;
+done:
+    if (error) fprintf(stderr, "%s\n", error);
+    free(error);
+    ntfs_attributes_free(&attributes);
+    free(raw);
+    free(fixed);
+    ntfs_layout_free(&layout);
+    ntfs_close_volume(&volume);
+    if (image.fd >= 0 && close(image.fd)) result = 1;
+    return result;
+}
+
 static int check_map(const char *path, const char *payload)
 {
     Image image = {.fd = open(path, O_RDONLY | O_NOFOLLOW)};
@@ -506,6 +560,8 @@ done:
 
 int main(int argc, char **argv)
 {
+    if (argc == 3 && !strcmp(argv[2], "--verify-native-label"))
+        return check_native_volume_label(argv[1]);
     if (argc == 3 &&
         (!strcmp(argv[2], "--sector-1024") ||
          !strcmp(argv[2], "--sector-2048") ||
