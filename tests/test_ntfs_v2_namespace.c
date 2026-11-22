@@ -115,6 +115,8 @@ int main(int argc,char **argv)
     for (uint32_t i=0u;i<1024u;++i) {
         int rc=core->directory_entry(mounted,"/",i,&entry);
         if (rc==IFS_FS_END){ended=1;break;}
+        if (rc!=IFS_FS_OK)
+            fprintf(stderr,"NTFS V2 directory entry %u failed: %d\n",i,rc);
         CHECK(rc==IFS_FS_OK);
         if (!strcmp(name,"kernel.img")) {
             CHECK(entry.type==IFS_FS_ENTRY_FILE &&
