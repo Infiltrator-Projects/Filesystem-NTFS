@@ -6,8 +6,33 @@ include(FetchContent)
 find_package(OpenSSL REQUIRED)
 find_package(SQLite3 REQUIRED)
 find_package(Threads REQUIRED)
-find_path(NTFS3G_INCLUDE_DIR NAMES ntfs-3g/device.h REQUIRED)
-find_library(NTFS3G_LIBRARY NAMES ntfs-3g REQUIRED)
+# The adapted formatter's supporting NTFS sources are pinned and included
+# in the native RUN. Build their PIC objects locally; never load a system
+# NTFS-3G shared library to provide filesystem semantics.
+set(NTFS_HELPERS_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/vendor/ntfs-3g")
+set(NTFS_HELPERS_REV "78414d93613532fd82f3a82aba5d4a1c32898781")
+if(NOT EXISTS "${NTFS_HELPERS_SOURCE}/SOURCE-REVISION")
+  message(FATAL_ERROR "Pinned NTFS formatter helpers not source-embedded")
+endif()
+file(STRINGS "${NTFS_HELPERS_SOURCE}/SOURCE-REVISION" NTFS_ACTUAL_REV LIMIT_COUNT 1)
+if(NOT NTFS_ACTUAL_REV STREQUAL NTFS_HELPERS_REV)
+  message(FATAL_ERROR "Incorrect pinned NTFS helper source revision")
+endif()
+set(NTFS3G_INCLUDE_DIR "${NTFS_HELPERS_SOURCE}/include")
+set(NTFS_HELPERS_BUILD "${CMAKE_CURRENT_BINARY_DIR}/ntfs-helpers-pic")
+execute_process(
+  COMMAND /bin/sh "${CMAKE_CURRENT_SOURCE_DIR}/standalone/build_ntfs_codec.sh"
+          "${NTFS_HELPERS_SOURCE}" "${NTFS_HELPERS_BUILD}"
+  RESULT_VARIABLE NTFS_HELPERS_RC
+  OUTPUT_VARIABLE NTFS_HELPERS_OUTPUT
+  ERROR_VARIABLE NTFS_HELPERS_ERRORS)
+if(NOT NTFS_HELPERS_RC EQUAL 0)
+  message(FATAL_ERROR "Pinned NTFS helper PIC build failed:\n${NTFS_HELPERS_OUTPUT}\n${NTFS_HELPERS_ERRORS}")
+endif()
+set(NTFS3G_LIBRARY "${NTFS_HELPERS_BUILD}/libntfs-3g/.libs/libntfs-3g.a")
+if(NOT EXISTS "${NTFS3G_LIBRARY}")
+  message(FATAL_ERROR "Missing source-compiled position-independent NTFS helper archive")
+endif()
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
