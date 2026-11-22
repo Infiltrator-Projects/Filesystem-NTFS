@@ -13,6 +13,7 @@ truncate -s 64M "$image"
 # Real NTFS $MFT, allocation runlists and root directory index are used.
 head -c 65536 /dev/urandom > "$payload"
 "$copy_tool" -f "$image" "$payload" kernel.img
+"$copy_tool" -f "$image" "$payload" initramfs.img
 sha256sum "$image" > "$work/source.sha"
 "$test_app" "$image" "$payload" --read
 (cd "$work" && sha256sum -c source.sha)
