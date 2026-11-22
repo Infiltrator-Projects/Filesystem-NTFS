@@ -199,14 +199,14 @@ int ntfs_encode_single_run(uint64_t lcn, uint64_t length, uint8_t *output, size_
 int ntfs_apply_fixups(const uint8_t *raw, size_t length, uint32_t sector_size,
                       uint8_t *fixed, char **error) {
     uint16_t usa_off, usa_count;
-    if (!sector_size || !fixed || ntfs_disk_usa(raw, length, &usa_off, &usa_count)) {
+    if (!sector_size || !fixed || ntfs_disk_usa(raw, length, sector_size, &usa_off, &usa_count)) {
         ntfs_set_error(error, "invalid NTFS update-sequence geometry");
         return -1;
     }
     memcpy(fixed, raw, length);
     uint16_t usn = ntfs_u16(fixed, usa_off);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * NTFS_MST_BYTES;
+        size_t end = index * sector_size;
         if (ntfs_u16(fixed, end - 2U) != usn) { ntfs_set_error(error, "NTFS MFT update-sequence mismatch"); return -1; }
         ntfs_put_u16(fixed, end - 2U, ntfs_u16(fixed, usa_off + index * 2U));
     }
@@ -220,7 +220,7 @@ int ntfs_apply_fixups(const uint8_t *raw, size_t length, uint32_t sector_size,
 int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_size,
                         uint8_t *raw, char **error) {
     uint16_t usa_off, usa_count;
-    if (!sector_size || !raw || ntfs_disk_usa(fixed, length, &usa_off, &usa_count)) {
+    if (!sector_size || !raw || ntfs_disk_usa(fixed, length, sector_size, &usa_off, &usa_count)) {
         ntfs_set_error(error, "invalid NTFS update-sequence geometry");
         return -1;
     }
@@ -228,7 +228,7 @@ int ntfs_prepare_fixups(const uint8_t *fixed, size_t length, uint32_t sector_siz
     uint16_t usn = (uint16_t)(ntfs_u16(raw, usa_off) + 1U); if (usn == 0) usn = 1;
     ntfs_put_u16(raw, usa_off, usn);
     for (size_t index = 1; index < usa_count; ++index) {
-        size_t end = index * NTFS_MST_BYTES;
+        size_t end = index * sector_size;
         ntfs_put_u16(raw, usa_off + index * 2U, ntfs_u16(raw, end - 2U));
         ntfs_put_u16(raw, end - 2U, usn);
     }
