@@ -28,7 +28,7 @@ int ntfs_disk_geometry(const uint8_t boot[512], uint64_t host_bytes, NtfsDiskGeo
     if (encoded < -20)
         return IFS_FS_UNSUPPORTED;
     const uint32_t record = encoded < 0 ? UINT32_C(1) << -encoded : (uint32_t)encoded * cluster;
-    if (record < NTFS_MST_BYTES || (record & (record - 1)) ||
+    if (record < sector || (record & (record - 1)) ||
         record > UINT32_C(1048576) || record % sector ||
         record > (clusters - mft) * cluster || record > (clusters - mirror) * cluster)
         return IFS_FS_CORRUPT;
@@ -57,14 +57,17 @@ int ntfs_disk_probe(const IfsFsHostRuntimeV2 *host, uint32_t *variant)
     return rc;
 }
 
-int ntfs_disk_usa(const uint8_t *record, size_t length, uint16_t *offset, uint16_t *count)
+int ntfs_disk_usa(const uint8_t *record, size_t length, uint32_t sector_bytes,
+                  uint16_t *offset, uint16_t *count)
 {
-    if (!record || length < NTFS_MST_BYTES || length % NTFS_MST_BYTES)
+    if (!record || !offset || !count ||
+        (sector_bytes != 512u && sector_bytes != 4096u) ||
+        length < sector_bytes || length % sector_bytes)
         return IFS_FS_CORRUPT;
     uint16_t at = infiltratr_load_le16(record + 4);
     uint16_t words = infiltratr_load_le16(record + 6);
-    if (words != length / NTFS_MST_BYTES + 1 || at < 8 || (at & 1) ||
-        at + 2u * words > NTFS_MST_BYTES - 2u)
+    if (words != length / sector_bytes + 1u || at < 8 || (at & 1) ||
+        at + 2u * words > sector_bytes - 2u)
         return IFS_FS_CORRUPT;
     *offset = at;
     *count = words;
