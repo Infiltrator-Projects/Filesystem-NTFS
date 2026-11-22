@@ -20,7 +20,7 @@ if [ ! -x "$source_root/configure" ]; then
     (cd "$source_root" && sh ./autogen.sh)
 fi
 mkdir -p "$build_root"
-(cd "$build_root" && CFLAGS="-O2 -fPIC" "$source_root/configure" \
+(cd "$build_root" && CFLAGS="-O2 -fPIC" sh "$source_root/configure" \
     --disable-ntfs-3g --disable-ntfsprogs --disable-shared --enable-static \
     --with-fuse=none --disable-ldconfig --disable-nfconv)
 make -C "$build_root/libntfs-3g" -j2
