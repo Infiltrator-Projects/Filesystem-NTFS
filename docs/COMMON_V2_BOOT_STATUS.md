@@ -1,44 +1,65 @@
-# NTFS Common V2 hosted and freestanding qualification
+# NTFS Common V2 native hosted and freestanding reader
 
-## Production boundary
+## Runtime architecture (source revision after 1.0.20)
 
-NTFS.so exports only `infiltrator_filesystem_api_v2()`. Its hosted module
-provides CORE PROBE/MOUNT/STAT/LIST/READ over Common V2 partition-relative
-reads using the existing ntfs-3g MFT and index engine. The embedded
-`.infiltrator_boot` ELF now builds the independent, freestanding
-`native/ntfs_ro_v2.c` C reader, not a probe-only descriptor. That reader uses
-Common V2 host I/O and allocation exclusively, without glibc, NTFS-3G, Linux
-VFS, FUSE, runtime filesystem-specific .ko or Python.
+The one installed `NTFS.so` exports only
+`infiltrator_filesystem_api_v2`. Hosted and firmware profiles compile
+**the same** `native/ntfs_ro_v2.c` bounded native NTFS decoder. Both
+profiles implement CORE PROBE, read-only MOUNT/UNMOUNT, STAT, LIST and
+READ with real NTFS MFT records, USA fixups, INDEX_ROOT and
+INDEX_ALLOCATION traversal, sector-safe host reads, allocation runlists,
+clean-volume validation and invalid-handle rejection. Each profile owns
+its own stable Common V2 session registry; both call the same on-media
+decoder, not separately reimplemented path readers.
 
-Freestanding CORE implements PROBE, read-only MOUNT/UNMOUNT, STAT, LIST and
-READ; VOLUME implements QUERY. The reader checks NTFS boot geometry, MFT
-file-record USA fixups, attribute boundaries, generation numbers, index entries,
-resident and nonresident streams, allocation runlists and the $Bitmap.
-It refuses dirty volumes, malformed attributes, unsupported encryption or
-compression, unqualified attribute-list extensions and reparse traversal.
+Hosted DEFRAG.MAP now calls `ntfs_ro_map_v2` on the *mounted native
+reader*, and parses exactly the same MFT data runs as CORE.READ. Runlist
+mapping validates the entire mapping-pairs chain before emitting physical
+extents and supports bounded pagination and sparse-run omission. This
+is a read-only filesystem allocation map, **not** a V2 defragmentation
+mutation/recovery capability. Hosted VOLUME.FORMAT remains available;
+it is distinct from read-only mounting and does not run in firmware.
 
-## Tested contract
+The old `module/ntfs_v2_map.c` NTFS-3G namespace and extent-map bridge
+has been removed from the installed target and the repository. There is
+no Linux VFS, FUSE, NTFS-3G namespace reader, native `.ko` fallback or
+retired filesystem ABI in the production CORE/MAP read path.
+Freestanding reader is built with `-ffreestanding` and no imported
+dynamic libraries; its exact ELF is embedded into the single installed
+carrier in `.infiltrator_boot`.
 
-CI builds both firmware and hosted profiles and extracts the **actual**
-firmware ELF from both the generic Debian and CPU-native RUN packaged modules.
-Disposable independently formatted NTFS images exercise 512-byte and 4096-byte
-sectors/host geometry, directory traversal, kernel and initramfs exact-byte
-reads, file-not-found, invalid paths, stale mount handles, corrupt geometry,
-MFT fixup corruption and dirty-volume exclusion. SHA-256 confirms the source
-images are unchanged.
+## Exact executable qualification
 
-Historical V1 workers/fixtures are retained in test-only targets and must not
-be linked or exported in installed NTFS.so. The release contains NTFS.so and
-its manual, never a Linux kernel driver substitute.
+Source and Common V2 interface validity alone are not a working boot
+test. The repository tests the actual linked and packaged hosted and
+freestanding providers on independently `mkntfs`-formatted, copied
+512-byte and 4096-byte logical-sector disposable disk images.
+Tests compare the full real Linux kernel and generated initramfs against
+source bytes; check real root listing, NTFS path lookup, partial reads,
+volume totals, stale handles, metadata corruption, the MFT fixup, and
+clean versus dirty journal rejection; and confirm unchanged image SHA.
+Hosted DEFRAG.MAP separately checks real physical extent bounds,
+fragment ordering and next-page/missing-file results.
 
-## Unqualified integration and supported subset
+The `tests/test_ntfs_duplicate_attribute.c` test uses the exact
+native reader source and rejects duplicate `$DATA` attributes, an
+unterminated FILE chain and malformed subsequent attributes even when
+the first matching record is valid. The source and V2 module need to
+pass **new current-main** CI before any updated .deb/.run release can
+be called qualified.
 
-**Not yet certified for use by the future Common V2 BOOT consumer.**
-The freestanding payload is an import-free ELF intended for authenticated
-loading by that consumer, but an actual BOOT V2 validator, OVMF startup and
-kernel/initramfs handoff through BOOT remain untested. The portable firmware
-reader implements a conservative NTFS subset; unsupported metadata must
-fail closed. The hosted path still uses ntfs-3g while the freestanding profile
-uses the native C reader; **sharing the complete native implementation across
-both profiles remains an architectural convergence task**. Do not imply a
-completed BOOT integration or identical execution profiles from green CI.
+## Not yet a production BOOT integration
+
+BOOT itself does not currently consume Common V2, so neither the
+module nor its embedded firmware profile can be described as
+currently BOOT-compatible. No current production BOOT V2 validator
+or OVMF kernel handoff has accepted this exact module. The
+freestanding reader supports a conservative NTFS feature subset,
+and refuses dirty metadata, attribute-list extensions, unqualified
+encryption/compression and reparse traversal. These exclusions are
+intentional; do not replace the on-media decoder, weaken a validator
+or invent a success.
+
+Historical worker/transaction regression code is test-only and is
+not linked or published as a V1 runtime. Actual V2 transactional
+defragmentation and durable recovery are still unavailable.
