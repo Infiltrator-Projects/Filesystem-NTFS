@@ -7,12 +7,15 @@ mkfs_tool=$(realpath "${3:?mkntfs required}")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 image="$work/native.img"
-payload="$work/kernel-payload.bin"
+bash "$(dirname "$0")/boot-file-fixtures.sh" "$work/bootfiles"
+payload="$work/bootfiles/vmlinuz"
+initramfs="$work/bootfiles/initramfs"
 truncate -s 64M "$image"
 "$mkfs_tool" -F -Q -L V2_NTFS_TEST "$image" >/dev/null
 # Real NTFS $MFT, allocation runlists and root directory index are used.
-head -c 65536 /dev/urandom > "$payload"
+test -s "$payload" && test -s "$initramfs"
 "$copy_tool" -f "$image" "$payload" kernel.img
+"$copy_tool" -f "$image" "$initramfs" initramfs.img
 "$copy_tool" -f "$image" "$payload" initramfs.img
 sha256sum "$image" > "$work/source.sha"
 "$test_app" "$image" "$payload" --read
