@@ -61,7 +61,8 @@ int ntfs_disk_usa(const uint8_t *record, size_t length, uint32_t sector_bytes,
                   uint16_t *offset, uint16_t *count)
 {
     if (!record || !offset || !count ||
-        (sector_bytes != 512u && sector_bytes != 4096u) ||
+        sector_bytes < 512u || sector_bytes > 4096u ||
+        (sector_bytes & (sector_bytes - 1u)) != 0u ||
         length < sector_bytes || length % sector_bytes)
         return IFS_FS_CORRUPT;
     uint16_t at = infiltratr_load_le16(record + 4);
@@ -70,7 +71,7 @@ int ntfs_disk_usa(const uint8_t *record, size_t length, uint32_t sector_bytes,
      * The on-disk USA count is authoritative only if it describes exactly
      * one of the supported protected-unit geometries. */
     const uint32_t unit = words == length / sector_bytes + 1u ? sector_bytes :
-        (sector_bytes == 4096u && words == length / 512u + 1u ? 512u : 0u);
+        (sector_bytes > 512u && words == length / 512u + 1u ? 512u : 0u);
     if (!unit || at < 8 || (at & 1) ||
         (uint32_t)at + 2u * words > unit - 2u)
         return IFS_FS_CORRUPT;
