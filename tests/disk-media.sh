@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 set -euo pipefail
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 probe=$(realpath "${1:?probe harness}")
 hosted=$(realpath "${2:?namespace harness}")
 module=$(realpath "${3:?installed NTFS.so}")
@@ -11,7 +12,7 @@ objcopy --dump-section .infiltrator_boot=reader.elf "$module" copy.so
 test -s reader.elf
 test -z "$(nm -Du reader.elf)"
 if readelf -dW reader.elf | grep '(NEEDED)' >/dev/null; then exit 1; fi
-bash "$(dirname "$0")/boot-file-fixtures.sh" "$work/bootfiles"
+bash "$script_dir/boot-file-fixtures.sh" "$work/bootfiles"
 kernel_source="$work/bootfiles/vmlinuz"
 initramfs_source="$work/bootfiles/initramfs"
 for disk_sector in 512 4096; do
