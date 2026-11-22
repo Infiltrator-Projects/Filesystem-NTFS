@@ -466,17 +466,22 @@ static int entry(NtfsReadOnlyV2 *v,uint64_t record,const char *name,
     const uint8_t *reparse;uint32_t rep_len=0u;
     rc=attribute(mft,v->geometry.record_bytes,
                  NTFS_ATTR_REPARSE,NULL,&reparse,&rep_len);
-    if(rc==IFS_FS_OK || rc==IFS_FS_UNSUPPORTED) {
-        drop(v,mft);return IFS_FS_UNSUPPORTED;
-    }
-    if(rc!=IFS_FS_NOT_FOUND){drop(v,mft);return rc;}
+    /* A reparse point has a real directory entry, but cannot be followed
+     * without implementing its specific reparse tag semantics. */
+    int is_reparse=rc==IFS_FS_OK;
+    if(rc!=IFS_FS_OK && rc!=IFS_FS_NOT_FOUND){drop(v,mft);return rc;}
     uint32_t type=(U16(mft+22u)&2u)?
-        IFS_FS_ENTRY_DIRECTORY:IFS_FS_ENTRY_FILE;
+        IFS_FS_ENTRY_DIRECTORY:(is_reparse?
+            IFS_FS_ENTRY_LINK:IFS_FS_ENTRY_FILE);
     uint64_t length=0u;
     if(type==IFS_FS_ENTRY_FILE) {
         const uint8_t *attr;uint32_t size;
         rc=file_data(v,mft,&attr,&size,&length);
-        if(rc!=IFS_FS_OK){drop(v,mft);return rc;}
+        /* NTFS allows regular records with only named data streams.
+         * Such a file has an empty unnamed (default) stream. */
+        if(rc!=IFS_FS_OK && rc!=IFS_FS_NOT_FOUND) {
+            drop(v,mft);return rc;
+        }
     }
     drop(v,mft);
     memcpy(out->name,name,name_length);
@@ -628,6 +633,8 @@ int ntfs_ro_read_v2(NtfsReadOnlyV2 *v,const char *path,
         const uint8_t *attr;uint32_t size;uint64_t length;
         rc=file_data(v,record,&attr,&size,&length);
         if(rc==IFS_FS_OK)rc=stream_read(v,attr,size,offset,out,n);
+        else if(rc==IFS_FS_NOT_FOUND)
+            rc=(!offset && !n)?IFS_FS_OK:IFS_FS_INVALID;
     }
     drop(v,record);
     return rc;
