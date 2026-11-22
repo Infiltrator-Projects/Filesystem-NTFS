@@ -147,7 +147,7 @@ if(BUILD_TESTING)
  target_include_directories(ntfs-v2-namespace-test PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${infiltratr_common_SOURCE_DIR}/include")
- target_link_libraries(ntfs-v2-namespace-test PRIVATE ntfs-driver InfiltratrCommon::Common)
+ target_link_libraries(ntfs-v2-namespace-test PRIVATE ntfs-driver InfiltratrCommon::Common ${CMAKE_DL_LIBS})
  add_test(NAME ntfs-v2-real-media-namespace
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/ntfs-v2-namespace.sh"
    "$<TARGET_FILE:ntfs-v2-namespace-test>" "${NTFS_COPY_TOOL}" "${NTFS_MKFS_TOOL}")
