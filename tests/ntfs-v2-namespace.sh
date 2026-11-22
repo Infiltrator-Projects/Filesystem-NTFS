@@ -4,15 +4,14 @@ set -euo pipefail
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 test_app=$(realpath "${1:?Common V2 test executable required}")
 copy_tool=$(realpath "${2:?ntfscp required}")
-mkfs_tool=$(realpath "${3:?mkntfs required}")
+format_tool=$(realpath "${3:?Common V2 formatter test executable required}")
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 image="$work/native.img"
 bash "$script_dir/boot-file-fixtures.sh" "$work/bootfiles"
 payload="$work/bootfiles/vmlinuz"
 initramfs="$work/bootfiles/initramfs"
-truncate -s 64M "$image"
-"$mkfs_tool" -F -Q -L V2_NTFS_TEST "$image" >/dev/null
+"$format_tool" "$image"
 # Real NTFS $MFT, allocation runlists and root directory index are used.
 test -s "$payload" && test -s "$initramfs"
 "$copy_tool" -f "$image" "$payload" kernel.img
