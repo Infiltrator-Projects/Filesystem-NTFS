@@ -90,6 +90,13 @@ int main(int argc,char **argv)
         CHECK(close(image.fd)==0);
         return 0;
     }
+    if (!strcmp(argv[3],"--dirty-volume")) {
+        CHECK(firmware!=NULL);
+        CHECK(core->mount(&host,&mounted,&info)==IFS_FS_UNSUPPORTED &&
+              !mounted);
+        CHECK(close(image.fd)==0 && dlclose(firmware)==0);
+        return 0;
+    }
     CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK && mounted);
     void *peer=NULL;
     info.structure_bytes=sizeof(info);
