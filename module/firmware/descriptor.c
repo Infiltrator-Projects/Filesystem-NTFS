@@ -1,18 +1,108 @@
-/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-License-Identifier: GPL-3.0-or-later
+ * Common V2 UEFI-profile NTFS provider. The same native on-media reader
+ * is compiled without libc, NTFS-3G, POSIX or operating-system services.
+ */
 #include "ntfs_disk.h"
+#include "ntfs_ro_v2.h"
+#include <stdint.h>
+#include <stddef.h>
 
+#define NTFS_MAX_SESSIONS 16u
+static struct {uintptr_t token;NtfsReadOnlyV2 *reader;} sessions[NTFS_MAX_SESSIONS];
+static uintptr_t generation;
+static NtfsReadOnlyV2 *active(void *handle)
+{
+    uintptr_t token=(uintptr_t)handle;
+    if(!token)return NULL;
+    for(unsigned i=0u;i<NTFS_MAX_SESSIONS;++i)
+        if(sessions[i].token==token)return sessions[i].reader;
+    return NULL;
+}
+static int mount(const IfsFsHostRuntimeV2 *host,void **output,
+                 IfsFsVolumeInfoV2 *info)
+{
+    if(!output || !info || info->structure_bytes<sizeof(*info))
+        return IFS_FS_INVALID;
+    *output=NULL;
+    if(generation==UINTPTR_MAX)return IFS_FS_BUSY;
+    unsigned free_slot=NTFS_MAX_SESSIONS;
+    for(unsigned i=0u;i<NTFS_MAX_SESSIONS;++i)
+        if(!sessions[i].token){free_slot=i;break;}
+    if(free_slot==NTFS_MAX_SESSIONS)return IFS_FS_BUSY;
+    NtfsReadOnlyV2 *reader=NULL;
+    int rc=ntfs_ro_open_v2(host,&reader,info);
+    if(rc!=IFS_FS_OK)return rc;
+    uintptr_t token=++generation;
+    sessions[free_slot].token=token;
+    sessions[free_slot].reader=reader;
+    *output=(void *)token;
+    return IFS_FS_OK;
+}
+static int unmount(void *handle)
+{
+    uintptr_t token=(uintptr_t)handle;
+    if(!token)return IFS_FS_INVALID;
+    for(unsigned i=0u;i<NTFS_MAX_SESSIONS;++i) {
+        if(sessions[i].token==token) {
+            NtfsReadOnlyV2 *reader=sessions[i].reader;
+            sessions[i].token=0u;sessions[i].reader=NULL;
+            ntfs_ro_close_v2(reader);
+            return IFS_FS_OK;
+        }
+    }
+    return IFS_FS_INVALID;
+}
+static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
+{
+    NtfsReadOnlyV2 *reader=active(handle);
+    return reader?ntfs_ro_stat_v2(reader,path,entry):IFS_FS_INVALID;
+}
+static int list_file(void *handle,const char *path,uint32_t index,
+                     IfsFsEntryV2 *entry)
+{
+    NtfsReadOnlyV2 *reader=active(handle);
+    return reader?ntfs_ro_list_v2(reader,path,index,entry):IFS_FS_INVALID;
+}
+static int read_file(void *handle,const char *path,uint64_t offset,
+                     void *data,uint32_t count)
+{
+    NtfsReadOnlyV2 *reader=active(handle);
+    return reader?ntfs_ro_read_v2(reader,path,offset,data,count):IFS_FS_INVALID;
+}
+static int volume_info(void *handle,IfsFsVolumeInfoV2 *info)
+{
+    NtfsReadOnlyV2 *reader=active(handle);
+    return reader?ntfs_ro_query_v2(reader,info):IFS_FS_INVALID;
+}
 static const IfsFsCoreOpsV2 core = {
-    .header = {IFS_FS_GROUP_ABI_V2,sizeof(IfsFsCoreOpsV2),IFS_FS_GROUP_CORE,0,IFS_FS_CORE_PROBE},
-    .probe = ntfs_disk_probe
+    .header = {IFS_FS_GROUP_ABI_V2,sizeof(IfsFsCoreOpsV2),
+               IFS_FS_GROUP_CORE,0u,
+               IFS_FS_CORE_PROBE|IFS_FS_CORE_MOUNT|IFS_FS_CORE_STAT|
+               IFS_FS_CORE_LIST|IFS_FS_CORE_READ},
+    .probe=ntfs_disk_probe,
+    .mount=mount,.unmount=unmount,.stat=stat_file,
+    .directory_entry=list_file,.read=read_file
+};
+static const IfsFsVolumeOpsV2 volume = {
+    .header={IFS_FS_GROUP_ABI_V2,sizeof(IfsFsVolumeOpsV2),
+             IFS_FS_GROUP_VOLUME,0u,IFS_FS_VOLUME_QUERY},
+    .query=volume_info
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id,uint32_t low,uint32_t high)
 {
-    return id==IFS_FS_GROUP_CORE && low<=IFS_FS_GROUP_ABI_V2 && high>=IFS_FS_GROUP_ABI_V2 ?
-           &core.header:NULL;
+    if(low>IFS_FS_GROUP_ABI_V2 || high<IFS_FS_GROUP_ABI_V2)return NULL;
+    if(id==IFS_FS_GROUP_CORE)return &core.header;
+    if(id==IFS_FS_GROUP_VOLUME)return &volume.header;
+    return NULL;
 }
 static const IfsFsModuleApiV2 api = {
-    IFS_FS_COMMON_ABI_V2,sizeof(IfsFsModuleApiV2),"ntfs",
-    IFS_FS_PROFILE_FREESTANDING|IFS_FS_PROFILE_FIRMWARE,IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE),query
+    .abi_version=IFS_FS_COMMON_ABI_V2,
+    .structure_bytes=sizeof(IfsFsModuleApiV2),
+    .format_id="ntfs",
+    .runtime_profiles=IFS_FS_PROFILE_FREESTANDING|IFS_FS_PROFILE_FIRMWARE,
+    .group_mask=IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE)|
+                IFS_FS_GROUP_BIT(IFS_FS_GROUP_VOLUME),
+    .query_group=query
 };
 __attribute__((visibility("default")))
-const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void) { return &api; }
+const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void){return &api;}
