@@ -138,7 +138,7 @@ def inspect(module):
     dependencies(module)
 
 def test(module, workspace=None):
-    # CTest / make test are run for every pass by build(); this rechecks the installed bytes.
+    # Build qualification is profile-specific; recheck the packaged bytes here.
     inspect(module)
 
 def build(profile, module, runtime):
@@ -182,7 +182,11 @@ def build(profile, module, runtime):
                     env=test_environment)
 
             def test_build():
-                run(["ctest", "--test-dir", dest, "--output-on-failure"],
+                # The native PGO passes exercise production code without the
+                # expensive format/media qualification used by CI and release.
+                selection = (["--no-tests=error", "-L", "^install-smoke$", "--timeout", "30"]
+                             if profile == "aggressive" else [])
+                run(["ctest", "--test-dir", dest, "--output-on-failure", *selection],
                     env=test_environment)
 
             def configure(cflags, ldflags=""):

@@ -193,6 +193,10 @@ if(BUILD_TESTING)
  add_test(NAME ntfs-production-v2-only
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/tests/check_production_v2.sh"
     "$<TARGET_FILE:ntfs-driver>")
+ # Native installation trains the production V2 reader in memory. Keep
+ # formatting, media mutation and recovery regressions in full CI testing.
+ set_tests_properties(ntfs-native-v2-probe ntfs-production-v2-only
+   PROPERTIES LABELS "install-smoke" TIMEOUT 30)
 
  # Validate the native FILE attribute decoder shared by the hosted and
  # freestanding Common V2 provider. The real-image V2 test above stays
