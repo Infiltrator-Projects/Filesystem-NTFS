@@ -6,6 +6,7 @@ typedef struct NtfsReadOnlyV2 NtfsReadOnlyV2;
 int ntfs_ro_open_v2(const IfsFsHostRuntimeV2 *,NtfsReadOnlyV2 **,
                     IfsFsVolumeInfoV2 *);
 void ntfs_ro_close_v2(NtfsReadOnlyV2 *);
+int ntfs_ro_label_v2(NtfsReadOnlyV2 *,char *,uint32_t,uint32_t *);
 int ntfs_ro_query_v2(NtfsReadOnlyV2 *,IfsFsVolumeInfoV2 *);
 int ntfs_ro_stat_v2(NtfsReadOnlyV2 *,const char *,IfsFsEntryV2 *);
 int ntfs_ro_list_v2(NtfsReadOnlyV2 *,const char *,uint32_t,IfsFsEntryV2 *);

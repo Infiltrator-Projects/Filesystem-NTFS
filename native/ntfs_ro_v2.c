@@ -20,6 +20,7 @@
 #define NTFS_ATTR_LIST 0x20u
 #define NTFS_ATTR_DATA 0x80u
 #define NTFS_ATTR_VOLUME_INFORMATION 0x70u
+#define NTFS_ATTR_VOLUME_NAME 0x60u
 #define NTFS_ATTR_INDEX_ROOT 0x90u
 #define NTFS_ATTR_INDEX_ALLOCATION 0xa0u
 #define NTFS_ATTR_REPARSE 0xc0u
@@ -301,25 +302,23 @@ static int file_data(NtfsReadOnlyV2 *v,const uint8_t *record,
 
 /* Convert a validated NTFS file-name key to bounded UTF-8. We intentionally
  * reject noncanonical surrogates and embedded NUL/slash, not truncate them. */
-static int name_utf8(const uint8_t *key,uint32_t key_len,
-                     char name[768],size_t *written,int *dos_only)
+/* Shared UTF-16LE decoder for native FILE_NAME and VOLUME_NAME
+ * attributes. A bounded scratch buffer guarantees atomic output. */
+static int utf16_name(const uint8_t *data,unsigned chars,int filename,
+                      char name[768],size_t *written)
 {
-    if(key_len<66u)return IFS_FS_CORRUPT;
-    unsigned chars=key[64u],kind=key[65u];
-    if(kind>3u || chars>255u || 66u+2u*chars>key_len)
-        return IFS_FS_CORRUPT;
-    *dos_only=kind==2u;
+    if(chars>255u)return IFS_FS_CORRUPT;
     size_t n=0u;
     for(unsigned i=0u;i<chars;++i) {
-        uint32_t cp=U16(key+66u+i*2u);
+        uint32_t cp=U16(data+i*2u);
         if(cp>=0xd800u && cp<=0xdbffu) {
             if(i+1u>=chars)return IFS_FS_CORRUPT;
-            uint32_t low=U16(key+66u+(i+1u)*2u);
+            uint32_t low=U16(data+(i+1u)*2u);
             if(low<0xdc00u || low>0xdfffu)return IFS_FS_CORRUPT;
             cp=0x10000u+((cp-0xd800u)<<10u)+(low-0xdc00u);
             ++i;
         } else if(cp>=0xdc00u && cp<=0xdfffu)return IFS_FS_CORRUPT;
-        if(cp==0u || cp=='/')return IFS_FS_CORRUPT;
+        if(cp==0u || (filename && cp=='/'))return IFS_FS_CORRUPT;
         if(cp<0x80u)name[n++]=(char)cp;
         else if(cp<0x800u) {
             name[n++]=(char)(0xc0u|(cp>>6u));
@@ -335,8 +334,47 @@ static int name_utf8(const uint8_t *key,uint32_t key_len,
             name[n++]=(char)(0x80u|(cp&63u));
         }
     }
-    if(!n || n>=768u)return IFS_FS_CORRUPT;
+    if((filename && !n) || n>=768u)return IFS_FS_CORRUPT;
     name[n]=0;*written=n;
+    return IFS_FS_OK;
+}
+static int name_utf8(const uint8_t *key,uint32_t key_len,
+                     char name[768],size_t *written,int *dos_only)
+{
+    if(key_len<66u)return IFS_FS_CORRUPT;
+    unsigned chars=key[64u],kind=key[65u];
+    if(kind>3u || 66u+2u*chars>key_len)return IFS_FS_CORRUPT;
+    *dos_only=kind==2u;
+    return utf16_name(key+66u,chars,1,name,written);
+}
+/* $Volume is MFT record 3. Its unnamed resident VOLUME_NAME attribute
+ * is optional; an absent attribute denotes an unlabeled volume. All
+ * access uses the existing USA fixups and validated MFT attribute walk. */
+int ntfs_ro_label_v2(NtfsReadOnlyV2 *v,char *out,uint32_t capacity,uint32_t *written)
+{
+    if(!written)return IFS_FS_INVALID;
+    *written=0u;
+    if(!v || !out || !capacity)return IFS_FS_INVALID;
+    uint8_t *record=NULL;
+    int rc=record_load(v,NTFS_VOLUME_RECORD,&record);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint8_t *attr=NULL,*data=NULL;
+    uint32_t size=0u,length=0u;
+    char name[768]={0};
+    size_t n=0u;
+    rc=attribute(record,v->geometry.record_bytes,NTFS_ATTR_VOLUME_NAME,NULL,&attr,&size);
+    if(rc==IFS_FS_NOT_FOUND)rc=IFS_FS_OK;
+    else if(rc==IFS_FS_OK) {
+        rc=resident(attr,size,&data,&length);
+        if(rc==IFS_FS_OK) {
+            if(length%2u || length>256u)rc=IFS_FS_CORRUPT;
+            else rc=utf16_name(data,length/2u,0,name,&n);
+        }
+    }
+    drop(v,record);
+    if(rc!=IFS_FS_OK)return rc;
+    if(n>=capacity)return IFS_FS_NO_SPACE;
+    memcpy(out,name,n+1u);*written=(uint32_t)n;
     return IFS_FS_OK;
 }
 /* Decode one shortest-form UTF-8 scalar for exact NTFS name matching.

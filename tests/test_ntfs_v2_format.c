@@ -623,6 +623,13 @@ int main(int argc, char **argv)
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
     void *mounted = NULL;
     CHECK(core->mount(&reader, &mounted, &info) == IFS_FS_OK);
+    char read_label[768],tiny_label[2]={'X','X'};
+    uint32_t label_bytes=UINT32_MAX;
+    CHECK(volume->label && !volume->set_label &&
+          volume->label(mounted,read_label,sizeof(read_label),&label_bytes)==IFS_FS_OK &&
+          !strcmp(read_label,"Caf\xC3\xA9 \xF0\x9F\x9A\x80") && label_bytes==10u);
+    CHECK(volume->label(mounted,tiny_label,sizeof(tiny_label),&label_bytes)==IFS_FS_NO_SPACE &&
+          !label_bytes && tiny_label[0]=='X' && tiny_label[1]=='X');
     CHECK(info.variant == 1u && info.block_bytes == 4096u &&
           info.total_bytes == IMAGE_BYTES - SECTOR &&
           info.free_bytes > 0 && info.free_bytes < info.total_bytes);

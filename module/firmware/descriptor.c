@@ -131,10 +131,18 @@ static const IfsFsCoreOpsV2 core = {
     .mount=mount,.unmount=unmount,.stat=stat_file,
     .directory_entry=list_file,.read=read_file
 };
+static int volume_label(void *handle,char *out,uint32_t capacity,uint32_t *written)
+{
+    if(!written)return IFS_FS_INVALID;
+    *written=0u;
+    if(!enter_operation())return IFS_FS_BUSY;
+    NtfsReadOnlyV2 *reader=active(handle);
+    return leave_operation(reader?ntfs_ro_label_v2(reader,out,capacity,written):IFS_FS_INVALID);
+}
 static const IfsFsVolumeOpsV2 volume = {
     .header={IFS_FS_GROUP_ABI_V2,sizeof(IfsFsVolumeOpsV2),
-             IFS_FS_GROUP_VOLUME,0u,IFS_FS_VOLUME_QUERY},
-    .query=volume_info
+             IFS_FS_GROUP_VOLUME,0u,IFS_FS_VOLUME_QUERY|IFS_FS_VOLUME_LABEL_GET},
+    .query=volume_info,.label=volume_label
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id,uint32_t low,uint32_t high)
 {

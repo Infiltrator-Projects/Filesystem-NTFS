@@ -223,10 +223,19 @@ static const IfsFsDefragOpsV2 defrag_ops = {
     .map = map_file
 };
 
+static int ntfs_label(void *handle,char *out,uint32_t capacity,uint32_t *written)
+{
+    if(!written)return IFS_FS_INVALID;
+    *written=0u;
+    if(!enter_operation())return IFS_FS_BUSY;
+    const MountedNtfs *volume=find_volume(handle);
+    return leave_operation(volume && volume->reader ?
+        ntfs_ro_label_v2(volume->reader,out,capacity,written):IFS_FS_INVALID);
+}
 static const IfsFsVolumeOpsV2 volume_ops = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsVolumeOpsV2),
-        IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT },
-    .query = ntfs_volume_query,
+        IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT | IFS_FS_VOLUME_LABEL_GET },
+    .query = ntfs_volume_query, .label=ntfs_label,
     .format = ifs_ntfs_format
 };
 
