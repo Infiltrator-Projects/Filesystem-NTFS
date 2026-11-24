@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build tools and pinned Common dependencies
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends build-essential binutils cmake git pkg-config libssl-dev libsqlite3-dev dpkg-dev autoconf automake libtool libgcrypt20-dev
-      - name: Qualify portable Debian and embed exact source into native RUN
+      - name: Qualify portable Debian and generate revision-pinned source-first native RUN
         run: |
           set -euo pipefail
           python3 -m py_compile standalone/build.py standalone/release.py
@@ -27,7 +27,7 @@ jobs:
           sudo python3 standalone/check-documentation-upgrade.py dist/*.deb
           test "$(find dist -name '*.deb' | wc -l)" = 1
           test "$(find dist -name '*.run' | wc -l)" = 1
-      - name: Prove source-embedded RUN creates CPU-native Debian with one SO and PDF
+      - name: Prove source-first RUN creates CPU-native Debian with one SO and PDF
         run: |
           set -euo pipefail
           FS_SO="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["module"])')"
@@ -35,6 +35,10 @@ jobs:
           FS_ABI="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["abi"])')"
           FS_PDF="$(python3 -c 'import json; print(json.load(open("standalone/config.json"))["pdf"])')"
           run_file="$(find dist -maxdepth 1 -type f -name '*.run' -print -quit)"
+          # A bootstrap must contain no embedded source archive.
+          test "$(wc -c < "$run_file")" -lt 8192
+          ! grep -aF '__IFS_SOURCE_PAYLOAD_BELOW__' "$run_file"
+          grep -F "$GITHUB_SHA" "$run_file"
           bash "$run_file" --profile aggressive --build-only --output "$RUNNER_TEMP/native"
           deb_file="$(find "$RUNNER_TEMP/native" -maxdepth 1 -type f -name '*.deb' -print -quit)"
           test -s "$deb_file"
@@ -104,8 +108,8 @@ jobs:
             echo "Tag exists without a qualified release; refusing" >&2
             exit 1
           else
-            (cd dist && sha256sum -- *.deb *.run > SHA256SUMS.txt)
-            gh release create "$tag" dist/*.deb dist/*.run dist/SHA256SUMS.txt \
+            (cd dist && sha256sum -- *.deb *.run)
+            gh release create "$tag" dist/*.deb dist/*.run \
               --target "$GITHUB_SHA" \
               --title "NTFS Common V2 native 512/1024/2048/4096-sector formatter $version" \
               --notes "Native Common V2 NTFS formatter and read-only hosted/freestanding readers. Packaged .deb and .run have passed separate genuine 512-, 1024-, 2048- and 4096-byte logical-sector volume format, probe and mount regressions. Both media geometries pass kernel/initramfs reads using 512-byte and 4096-byte host I/O, MFT/checksum and dirty-volume negative tests, with unchanged source media. No external NTFS filesystem utility or NTFS-3G/FUSE runtime was required; the original licensed NTFS helper source is embedded and compiled into the shared object. No V1 public export or .ko asset; firmware profile is import-free. Hosted CORE and DEFRAG.MAP now use the same native NTFS reader as the embedded freestanding ELF; actual future BOOT V2/OVMF handoff is not yet qualified."

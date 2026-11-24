@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-"""Release exactly one filesystem's DEB and source-embedded native RUN."""
+"""Release one portable DEB and a revision-pinned, source-first native RUN."""
 import argparse
 import hashlib
-import io
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-import tarfile
 import tempfile
 
 import build as fsbuild
@@ -91,83 +89,30 @@ def build_deb(profile, dest):
 
 
 
-def source_files():
-    if (ROOT / ".git").exists():
-        names = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "-z"])
-        paths = [Path(os.fsdecode(p)) for p in names.split(b"\0") if p]
-    else:
-        paths = [p.relative_to(ROOT) for p in ROOT.rglob("*") if p.is_file()]
-    if hasattr(fsbuild, "release_source_files"):
-        paths = fsbuild.release_source_files()
-    # Source-exact self-contained archives, same deterministic PAX builder
-    # as FAT/OFS. Never include a build result, a symlink, or a local Git dir.
-    chosen = []
-    for p in paths:
-        q = p.as_posix()
-        if (q.startswith((".git/", "dist/", "build/", "__pycache__/"))
-                or "/__pycache__/" in q or "/.git/" in q):
-            continue
-        if (ROOT / p).is_file() and not (ROOT / p).is_symlink():
-            chosen.append(p)
-    # EXT3 shares an implementation with EXT4, but its native installer
-    # embeds the exact pinned source; installation must never clone a driver.
-    for p in fsbuild.embedded_source_files():
-        if p not in chosen:
-            chosen.append(p)
-    if len(chosen) < 8:
-        raise RuntimeError("Insufficient source files for full independent build")
-    # Historical driver-builder source stays in Git; the RUN only carries
-    # the native V2 shared-library installer.
-    excluded = {PDF, Path("standalone/kernel.py"), Path("standalone/kernel.json")}
-    archive = set()
-    for path in chosen:
-        if path in excluded or (path.name == "filesystem_module.h" and path.parent.name == "infiltratr"):
-            continue
-        # Platform binding trees have separate entry points and build systems.
-        # The RUN compiles the shared engine and its Common V2 test fixtures.
-        if (path.parts[:2] == ("native", "filesystems") and len(path.parts) > 3
-                and path.parts[3] in ("linux", "efi", "windows")):
-            continue
-        if path.parts[:3] == ("native", "platform", "linux_kernel"):
-            continue
-        archive.add(path)
-    return sorted(archive)
-
 def create_run(path):
-    with tempfile.TemporaryFile() as temp:
-        with tarfile.open(fileobj=temp, mode="w:gz", format=tarfile.PAX_FORMAT) as tar:
-            for p in source_files():
-                data = (ROOT / p).read_bytes()
-                entry = tarfile.TarInfo(p.as_posix())
-                entry.size, entry.mode, entry.uid, entry.gid, entry.mtime = len(data), 0o644, 0, 0, 0
-                tar.addfile(entry, io.BytesIO(data))
-            revision = (source_revision() + "\n").encode("ascii")
-            stamp = tarfile.TarInfo("SOURCE-REVISION")
-            stamp.size, stamp.mode, stamp.uid, stamp.gid, stamp.mtime = len(revision), 0o644, 0, 0, 0
-            tar.addfile(stamp, io.BytesIO(revision))
-        temp.seek(0)
-        payload = temp.read()
-    digest = hashlib.sha256(payload).hexdigest()
+    # The release asset contains a shell bootstrap, not a source archive.
+    # Fetch the exact Git commit, independently verify its object ID, and
+    # let the checked-out builder acquire its separately pinned dependencies.
+    revision = source_revision()
     header = """#!/bin/sh
 set -eu
 if [ "$#" -gt 0 ] && [ "$1" = "--help" ]; then
     echo "Usage: __NAME__ [--profile aggressive] [--build-only --output DIRECTORY]"
     exit 0
 fi
+command -v git >/dev/null 2>&1 || { echo "git is required to fetch the pinned source" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "python3 is required by the existing native builder" >&2; exit 1; }
 temp=$(mktemp -d)
 trap 'rm -rf -- "$temp"' EXIT HUP INT TERM
-line=$(awk '/^__IFS_SOURCE_PAYLOAD_BELOW__$/ {print NR + 1; exit}' "$0")
-test -n "$line"
-tail -n +"$line" "$0" > "$temp/source.tar.gz"
-printf '%s  %s\n' '__SHA256__' "$temp/source.tar.gz" | sha256sum -c - >/dev/null
-mkdir "$temp/source"
-tar -xzf "$temp/source.tar.gz" -C "$temp/source" --no-same-owner --no-same-permissions
+git init -q "$temp/source"
+git -C "$temp/source" fetch --quiet --depth=1 https://github.com/Infiltrator-Projects/Filesystem-NTFS.git __REVISION__
+git -C "$temp/source" checkout --quiet --detach FETCH_HEAD
+test "$(git -C "$temp/source" rev-parse HEAD)" = '__REVISION__'
 python3 "$temp/source/standalone/release.py" install "$@"
-exit $?
-__IFS_SOURCE_PAYLOAD_BELOW__
-""".replace("__NAME__", path.name).replace("__SHA256__", digest)
-    path.write_bytes(header.encode("utf-8") + payload)
+""".replace("__NAME__", path.name).replace("__REVISION__", revision)
+    path.write_text(header, encoding="utf-8")
     path.chmod(0o755)
+
 
 def release():
     DIST.mkdir(exist_ok=True)
@@ -192,6 +137,8 @@ def install(rest):
     opt = parser.parse_args(rest)
     if opt.build_only and not opt.output:
         parser.error("--build-only requires --output DIRECTORY")
+    fsbuild.install_deps()
+    fsbuild.prepare_release_source()
     version = VERSION + ("+native1" if opt.profile == "aggressive" else "")
     with tempfile.TemporaryDirectory(prefix=SLUG + "-install-") as tmp:
         output = ((opt.output if opt.build_only else Path(tmp)) / f"{PACKAGE}_{version}_amd64.deb").resolve()
