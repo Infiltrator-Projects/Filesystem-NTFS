@@ -4,6 +4,23 @@
  */
 #include <infiltratr/filesystem_module_v2.h>
 #include <stdint.h>
+#include <stdatomic.h>
+
+/* Protect the session registry and native reader lifetime against concurrent
+ * and reentrant host callbacks. This conservative nonblocking gate does not
+ * claim parallel I/O: callers retry BUSY, and no callback can deadlock by
+ * attempting to unmount an in-flight reader. */
+static atomic_flag operation_gate=ATOMIC_FLAG_INIT;
+static int enter_operation(void)
+{
+    return !atomic_flag_test_and_set_explicit(&operation_gate,memory_order_acquire);
+}
+static int leave_operation(int rc)
+{
+    atomic_flag_clear_explicit(&operation_gate,memory_order_release);
+    return rc;
+}
+
 #include <string.h>
 #include <stdlib.h>
 #include "ntfs_native.h"
@@ -21,7 +38,7 @@ typedef struct {
     uint64_t free_clusters;
 } MountedNtfs;
 /* Non-recycled tokens prevent stale pointers from being reused by subsequent
- * mounts. The Common V2 host serializes lifecycle and callback invocations. */
+ * mounts. The provider enforces nonblocking operation exclusion. */
 #define NTFS_V2_MAX_MOUNTS 32u
 static struct { uintptr_t token; MountedNtfs *volume; } mounted_sessions[NTFS_V2_MAX_MOUNTS];
 static uintptr_t next_mount_token;
@@ -52,9 +69,14 @@ static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
     info->free_bytes = volume->free_clusters * volume->media.cluster_size;
     return IFS_FS_OK;
 }
-static int ntfs_volume_query(void *handle, IfsFsVolumeInfoV2 *info)
+static int ntfs_volume_query_impl(void *handle, IfsFsVolumeInfoV2 *info)
 {
     return fill_volume(find_volume(handle), info);
+}
+static int ntfs_volume_query(void *handle,IfsFsVolumeInfoV2 *info)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(ntfs_volume_query_impl(handle,info));
 }
 static unsigned popcount8(uint8_t bits)
 {
@@ -65,7 +87,7 @@ static unsigned popcount8(uint8_t bits)
     }
     return count;
 }
-static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
+static int native_mount_impl(const IfsFsHostRuntimeV2 *host, void **output,
                         IfsFsVolumeInfoV2 *info)
 {
     if (!output || !info || info->structure_bytes < sizeof(*info) ||
@@ -125,6 +147,7 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
         used += popcount8(volume->layout.bitmap[byte_count] & mask);
     }
     if (used > total) {
+        ntfs_ro_close_v2(volume->reader);
         ntfs_layout_free(&volume->layout);
         ntfs_close_volume(&volume->media);
         host->release(host->context, volume);
@@ -145,7 +168,13 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output,
     *output=(void *)token;
     return IFS_FS_OK;
 }
-static int native_unmount(void *handle)
+static int native_mount(const IfsFsHostRuntimeV2 *host, void **output, IfsFsVolumeInfoV2 *info)
+{
+    if (output) *output=NULL;
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(native_mount_impl(host,output,info));
+}
+static int native_unmount_impl(void *handle)
 {
     MountedNtfs *volume=find_volume(handle);
     if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
@@ -163,8 +192,13 @@ static int native_unmount(void *handle)
     host.release(host.context, volume);
     return IFS_FS_OK;
 }
+static int native_unmount(void *handle)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(native_unmount_impl(handle));
+}
 
-static int map_file(void *handle, const char *path, uint64_t first,
+static int map_file_impl(void *handle, const char *path, uint64_t first,
                     IfsFsExtentV2 *out, uint32_t capacity, uint32_t *written)
 {
     const MountedNtfs *volume = find_volume(handle);
@@ -175,6 +209,12 @@ static int map_file(void *handle, const char *path, uint64_t first,
         !(volume->host.capabilities & IFS_FS_HOST_READ_ONLY))
         return IFS_FS_INVALID;
     return ntfs_ro_map_v2(volume->reader, path, first, out, capacity, written);
+}
+static int map_file(void *handle,const char *path,uint64_t first,IfsFsExtentV2 *out,uint32_t capacity,uint32_t *written)
+{
+    if (written) *written=0u;
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(map_file_impl(handle,path,first,out,capacity,written));
 }
 
 static const IfsFsDefragOpsV2 defrag_ops = {
@@ -190,26 +230,41 @@ static const IfsFsVolumeOpsV2 volume_ops = {
     .format = ifs_ntfs_format
 };
 
-static int stat_file(void *handle, const char *path, IfsFsEntryV2 *entry)
+static int stat_file_impl(void *handle, const char *path, IfsFsEntryV2 *entry)
 {
     const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->reader) return IFS_FS_INVALID;
     return ntfs_ro_stat_v2(volume->reader, path, entry);
 }
-static int list_file(void *handle, const char *path, uint32_t index,
+static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(stat_file_impl(handle,path,entry));
+}
+static int list_file_impl(void *handle, const char *path, uint32_t index,
                      IfsFsEntryV2 *entry)
 {
     const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->reader) return IFS_FS_INVALID;
     return ntfs_ro_list_v2(volume->reader, path, index, entry);
 }
-static int read_file(void *handle, const char *path, uint64_t offset,
+static int list_file(void *handle,const char *path,uint32_t index,IfsFsEntryV2 *entry)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(list_file_impl(handle,path,index,entry));
+}
+static int read_file_impl(void *handle, const char *path, uint64_t offset,
                      void *destination, uint32_t length)
 {
     const MountedNtfs *volume = find_volume(handle);
     if (!volume || !volume->reader) return IFS_FS_INVALID;
     return ntfs_ro_read_v2(volume->reader, path, offset,
                            destination, length);
+}
+static int read_file(void *handle,const char *path,uint64_t offset,void *data,uint32_t length)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(read_file_impl(handle,path,offset,data,length));
 }
 
 static const IfsFsCoreOpsV2 core = {

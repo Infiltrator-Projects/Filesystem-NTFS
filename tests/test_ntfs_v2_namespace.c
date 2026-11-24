@@ -13,9 +13,18 @@
 #include <unistd.h>
 extern const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void);
 typedef struct { int fd; uint64_t bytes; uint32_t sector; } Image;
+static const IfsFsCoreOpsV2 *unmount_during_read;
+static void *active_volume;
+static int observed_unmount;
 static int read_at(void *context,uint64_t offset,void *dst,uint32_t length)
 {
     Image *image=context;
+    if (unmount_during_read) {
+        const IfsFsCoreOpsV2 *ops=unmount_during_read;
+        unmount_during_read=NULL;
+        observed_unmount=ops->unmount(active_volume);
+        if (observed_unmount!=IFS_FS_BUSY) return IFS_FS_IO_ERROR;
+    }
     if (!length || (offset%image->sector) || (length%image->sector) || length>4096u ||
         offset>image->bytes || length>image->bytes-offset)
         return IFS_FS_IO_ERROR;
@@ -219,8 +228,12 @@ int main(int argc,char **argv)
     CHECK(input>=0);
     CHECK(pread(input,expected_prefix,17u,5)==17 &&
           close(input)==0);
+    active_volume=mounted;
+    unmount_during_read=core;
+    observed_unmount=IFS_FS_INVALID;
     CHECK(core->read(mounted,"/kernel.img",5u,actual,17u)==IFS_FS_OK &&
           memcmp(expected_prefix,actual,17u)==0);
+    CHECK(!unmount_during_read && observed_unmount==IFS_FS_BUSY);
     CHECK(core->read(mounted,"/kernel.img",(uint64_t)source.st_size,
                      actual,0u)==IFS_FS_OK);
     CHECK(core->read(mounted,"/kernel.img",(uint64_t)source.st_size,

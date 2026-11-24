@@ -5,6 +5,23 @@
 #include "ntfs_disk.h"
 #include "ntfs_ro_v2.h"
 #include <stdint.h>
+#include <stdatomic.h>
+
+/* Protect the session registry and native reader lifetime against concurrent
+ * and reentrant host callbacks. This conservative nonblocking gate does not
+ * claim parallel I/O: callers retry BUSY, and no callback can deadlock by
+ * attempting to unmount an in-flight reader. */
+static atomic_flag operation_gate=ATOMIC_FLAG_INIT;
+static int enter_operation(void)
+{
+    return !atomic_flag_test_and_set_explicit(&operation_gate,memory_order_acquire);
+}
+static int leave_operation(int rc)
+{
+    atomic_flag_clear_explicit(&operation_gate,memory_order_release);
+    return rc;
+}
+
 #include <stddef.h>
 
 #define NTFS_MAX_SESSIONS 16u
@@ -18,7 +35,7 @@ static NtfsReadOnlyV2 *active(void *handle)
         if(sessions[i].token==token)return sessions[i].reader;
     return NULL;
 }
-static int mount(const IfsFsHostRuntimeV2 *host,void **output,
+static int mount_impl(const IfsFsHostRuntimeV2 *host,void **output,
                  IfsFsVolumeInfoV2 *info)
 {
     if(!output || !info || info->structure_bytes<sizeof(*info))
@@ -38,7 +55,13 @@ static int mount(const IfsFsHostRuntimeV2 *host,void **output,
     *output=(void *)token;
     return IFS_FS_OK;
 }
-static int unmount(void *handle)
+static int mount(const IfsFsHostRuntimeV2 *host, void **output, IfsFsVolumeInfoV2 *info)
+{
+    if (output) *output=NULL;
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(mount_impl(host,output,info));
+}
+static int unmount_impl(void *handle)
 {
     uintptr_t token=(uintptr_t)handle;
     if(!token)return IFS_FS_INVALID;
@@ -52,27 +75,52 @@ static int unmount(void *handle)
     }
     return IFS_FS_INVALID;
 }
-static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
+static int unmount(void *handle)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(unmount_impl(handle));
+}
+static int stat_file_impl(void *handle,const char *path,IfsFsEntryV2 *entry)
 {
     NtfsReadOnlyV2 *reader=active(handle);
     return reader?ntfs_ro_stat_v2(reader,path,entry):IFS_FS_INVALID;
 }
-static int list_file(void *handle,const char *path,uint32_t index,
+static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(stat_file_impl(handle,path,entry));
+}
+static int list_file_impl(void *handle,const char *path,uint32_t index,
                      IfsFsEntryV2 *entry)
 {
     NtfsReadOnlyV2 *reader=active(handle);
     return reader?ntfs_ro_list_v2(reader,path,index,entry):IFS_FS_INVALID;
 }
-static int read_file(void *handle,const char *path,uint64_t offset,
+static int list_file(void *handle,const char *path,uint32_t index,IfsFsEntryV2 *entry)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(list_file_impl(handle,path,index,entry));
+}
+static int read_file_impl(void *handle,const char *path,uint64_t offset,
                      void *data,uint32_t count)
 {
     NtfsReadOnlyV2 *reader=active(handle);
     return reader?ntfs_ro_read_v2(reader,path,offset,data,count):IFS_FS_INVALID;
 }
-static int volume_info(void *handle,IfsFsVolumeInfoV2 *info)
+static int read_file(void *handle,const char *path,uint64_t offset,void *data,uint32_t length)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(read_file_impl(handle,path,offset,data,length));
+}
+static int volume_info_impl(void *handle,IfsFsVolumeInfoV2 *info)
 {
     NtfsReadOnlyV2 *reader=active(handle);
     return reader?ntfs_ro_query_v2(reader,info):IFS_FS_INVALID;
+}
+static int volume_info(void *handle,IfsFsVolumeInfoV2 *info)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    return leave_operation(volume_info_impl(handle,info));
 }
 static const IfsFsCoreOpsV2 core = {
     .header = {IFS_FS_GROUP_ABI_V2,sizeof(IfsFsCoreOpsV2),
