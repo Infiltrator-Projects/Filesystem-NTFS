@@ -852,6 +852,80 @@ static int map_runs_v2(NtfsReadOnlyV2 *v,const uint8_t *attr,uint32_t size,
     *written=produced;
     return produced?IFS_FS_OK:IFS_FS_END;
 }
+/* A resident stream physically occupies the owning FILE record in
+ * $MFT, rather than owning data clusters. The on-disk update sequence
+ * array (USA) stores the original two bytes of every protected record
+ * sector tail. Translate those logical bytes to their actual USA storage
+ * locations, and translate each record offset through the $MFT runlist.
+ * Never substitute a fictitious data cluster or map the sequence marker
+ * as file payload. Coalesce adjacent raw bytes, validate the entire
+ * mapping before exposing a page, and leave zero-length streams empty. */
+static int map_resident_v2(NtfsReadOnlyV2 *v,uint64_t reference,
+    const uint8_t *record,const uint8_t *attr,uint32_t attr_bytes,
+    uint64_t first,IfsFsExtentV2 *out,uint32_t capacity,uint32_t *written)
+{
+    const uint8_t *data=NULL,*mft_attr=NULL;
+    uint32_t length=0u,mft_bytes=0u;
+    int rc=resident(attr,attr_bytes,&data,&length);
+    if(rc!=IFS_FS_OK)return rc;
+    if(!length)return IFS_FS_END;
+    const uint32_t record_bytes=v->geometry.record_bytes;
+    const uint32_t cluster=v->geometry.cluster_bytes;
+    const uint64_t number=reference&UINT64_C(0x0000ffffffffffff);
+    if(!cluster || !record_bytes || number>UINT64_MAX/record_bytes ||
+       data<record || (uint64_t)(data-record)>record_bytes ||
+       length>record_bytes-(uint64_t)(data-record))
+        return IFS_FS_CORRUPT;
+    const uint64_t base=number*record_bytes;
+    if(base>v->mft_length || record_bytes>v->mft_length-base)
+        return IFS_FS_CORRUPT;
+    rc=attribute(v->mft,record_bytes,NTFS_ATTR_DATA,NULL,&mft_attr,&mft_bytes);
+    if(rc!=IFS_FS_OK)return rc;
+    uint64_t stream_bytes=0u;
+    rc=stream_size(mft_attr,mft_bytes,&stream_bytes);
+    if(rc!=IFS_FS_OK)return rc;
+    if(!mft_attr[8u] || stream_bytes!=v->mft_length)
+        return IFS_FS_CORRUPT;
+    uint16_t usa=0u,count=0u;
+    rc=ntfs_disk_usa(record,record_bytes,v->geometry.sector_bytes,&usa,&count);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint32_t protected_bytes=record_bytes/(count-1u);
+    uint32_t produced=0u;
+    for(unsigned pass=0u;pass<2u;++pass) {
+        uint64_t index=0u,previous=0u,cached_vcn=UINT64_MAX,pcn=0u;
+        for(uint32_t i=0u;i<length;++i) {
+            uint32_t offset=(uint32_t)(data-record)+i;
+            const uint32_t within=offset%protected_bytes;
+            if(within>=protected_bytes-2u) {
+                const uint32_t sector=offset/protected_bytes+1u;
+                offset=(uint32_t)usa+2u*sector+within-(protected_bytes-2u);
+            }
+            if(offset>=record_bytes)return IFS_FS_CORRUPT;
+            const uint64_t pos=base+offset,vcn=pos/cluster;
+            if(vcn!=cached_vcn) {
+                int sparse=0;
+                rc=run_cluster(v,mft_attr,mft_bytes,vcn,&pcn,&sparse);
+                if(rc!=IFS_FS_OK)return rc;
+                if(sparse || pcn>UINT64_MAX/cluster)return IFS_FS_CORRUPT;
+                cached_vcn=vcn;
+            }
+            const uint64_t physical=pcn*(uint64_t)cluster+pos%cluster;
+            if(physical>=v->host.volume_bytes)return IFS_FS_CORRUPT;
+            if(!i || physical!=previous+1u) {
+                if(pass && index>=first && produced<capacity)
+                    out[produced++]=(IfsFsExtentV2){
+                        .logical_offset=i,.physical_offset=physical,.length=1u};
+                ++index;
+            } else if(pass && index>first && index-first<=produced) {
+                ++out[produced-1u].length;
+            }
+            previous=physical;
+        }
+    }
+    *written=produced;
+    return produced?IFS_FS_OK:IFS_FS_END;
+}
+
 int ntfs_ro_map_v2(NtfsReadOnlyV2 *v,const char *path,uint64_t first,
                    IfsFsExtentV2 *extents,uint32_t capacity,uint32_t *written)
 {
@@ -876,9 +950,14 @@ int ntfs_ro_map_v2(NtfsReadOnlyV2 *v,const char *path,uint64_t first,
         if(rc==IFS_FS_OK)rc=IFS_FS_UNSUPPORTED;
         else if(rc==IFS_FS_NOT_FOUND) {
             rc=file_data(v,record,&data,&data_bytes,&length);
-            if(rc==IFS_FS_OK)
-                rc=map_runs_v2(v,data,data_bytes,length,first,
-                               extents,capacity,written);
+            if(rc==IFS_FS_OK) {
+                if(!data[8u])
+                    rc=map_resident_v2(v,reference,record,data,data_bytes,
+                                       first,extents,capacity,written);
+                else
+                    rc=map_runs_v2(v,data,data_bytes,length,first,
+                                   extents,capacity,written);
+            }
         }
     }
     drop(v,record);

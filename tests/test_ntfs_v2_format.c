@@ -588,6 +588,12 @@ static int check_writable(const char *path)
     CHECK(core->mount(&reader,&peer,&info)==IFS_FS_BUSY && !peer);
     CHECK(core->create(mounted,"/V2-A.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
     CHECK(core->create(mounted,"/V2-B.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    /* NTFS stores a small unnamed stream inside its MFT record.
+     * Check every physical byte, including any USA-redirected tail. */
+    uint8_t small[300];
+    for(size_t i=0;i<sizeof(small);++i)small[i]=(uint8_t)(i*23u+9u);
+    CHECK(core->create(mounted,"/RESIDENT.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    CHECK(core->write(mounted,"/RESIDENT.BIN",0,small,sizeof(small))==IFS_FS_OK);
     uint8_t payload[65536],actual[65536];
     for(unsigned chunk=0;chunk<32u;++chunk) {
         for(size_t i=0;i<sizeof(payload);++i)
@@ -612,6 +618,23 @@ static int check_writable(const char *path)
     }
     IfsFsExtentV2 ranges[8];uint32_t mapped=0;
     CHECK(defrag->map(mounted,"/V2-A.BIN",0,ranges,8,&mapped)==IFS_FS_OK && mapped);
+    CHECK(core->read(mounted,"/RESIDENT.BIN",0,actual,sizeof(small))==IFS_FS_OK);
+    CHECK(!memcmp(small,actual,sizeof(small)));
+    uint64_t covered=0u;
+    for(uint64_t page=0u;page<=sizeof(small);++page) {
+        mapped=99u;
+        int rc=defrag->map(mounted,"/RESIDENT.BIN",page,ranges,1u,&mapped);
+        if(rc==IFS_FS_END){CHECK(!mapped && covered==sizeof(small));break;}
+        CHECK(rc==IFS_FS_OK && mapped==1u && ranges[0].logical_offset==covered);
+        CHECK(ranges[0].length && covered<=sizeof(small) &&
+              ranges[0].length<=sizeof(small)-covered);
+        CHECK(!ranges[0].flags && !ranges[0].reserved);
+        CHECK(pread(image.fd,actual,(size_t)ranges[0].length,
+                    (off_t)ranges[0].physical_offset)==(ssize_t)ranges[0].length);
+        CHECK(!memcmp(actual,small+covered,(size_t)ranges[0].length));
+        covered+=ranges[0].length;
+    }
+    CHECK(covered==sizeof(small));
     const unsigned before=image.writes;
     CHECK(core->write(mounted,"/V2-A.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
     CHECK(core->create(mounted,"/REFUSED",IFS_FS_ENTRY_FILE)==IFS_FS_ACCESS);
