@@ -645,6 +645,21 @@ int main(int argc, char **argv)
     CHECK(!memcmp(primary, backup, sizeof(primary)));
     CHECK(check_metadata_writes(&image, &host, &reader) == 0);
     CHECK(check_host_metadata_plan(&image, &host, &reader) == 0);
+    /* Create, append, verify, and reopen a real native file solely through
+     * the shipped Common V2 descriptor. No external seeder is involved. */
+    CHECK(volume->format(&host,1u,"V2 writable regression",0u)==IFS_FS_OK);
+    CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-WRITE.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    uint8_t payload[4096], actual[4096];
+    for(size_t i=0;i<sizeof(payload);++i)payload[i]=(uint8_t)(i*17u);
+    CHECK(core->write(mounted,"/V2-WRITE.BIN",0,payload,sizeof(payload))==IFS_FS_OK);
+    CHECK(core->write(mounted,"/V2-WRITE.BIN",sizeof(payload),payload,sizeof(payload))==IFS_FS_OK);
+    CHECK(core->unmount(mounted)==IFS_FS_OK);
+    CHECK(core->mount(&reader,&mounted,&info)==IFS_FS_OK);
+    CHECK(core->read(mounted,"/V2-WRITE.BIN",sizeof(payload),actual,sizeof(actual))==IFS_FS_OK);
+    CHECK(memcmp(payload,actual,sizeof(payload))==0);
+    CHECK(core->write(mounted,"/V2-WRITE.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
+    CHECK(core->unmount(mounted)==IFS_FS_OK);
     status = 0;
 done:
     if (close(image.fd)) status = 1;

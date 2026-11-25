@@ -28,7 +28,7 @@ int main(void) {
     CHECK(ifs_fs_api_v2_valid(api, "ntfs"));
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
     CHECK(core && core->probe && core->mount && core->unmount &&
-          core->stat && core->directory_entry && core->read && !core->write);
+          core->stat && core->directory_entry && core->read && core->write && core->create);
     const IfsFsVolumeOpsV2 *volume_ops = (const void *)
         ifs_fs_group_v2(api, IFS_FS_GROUP_VOLUME);
     CHECK(volume_ops && volume_ops->query && volume_ops->format &&
@@ -61,7 +61,7 @@ int main(void) {
     h.capabilities=IFS_FS_HOST_EXCLUSIVE|IFS_FS_HOST_DURABLE;
     h.write_at=forbidden_write;h.flush=forbidden_flush;
     CHECK(ifs_fs_host_v2_valid(&h));
-    CHECK(core->mount(&h,&mounted,&info)==IFS_FS_ACCESS && mounted==NULL);
+    CHECK(core->mount(&h,&mounted,&info)!=IFS_FS_OK && mounted==NULL);
     h.capabilities=IFS_FS_HOST_READ_ONLY;
     h.write_at=NULL;h.flush=NULL;
     CHECK(ifs_fs_host_v2_valid(&h));

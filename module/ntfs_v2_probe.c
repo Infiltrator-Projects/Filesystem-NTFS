@@ -27,11 +27,14 @@ static int leave_operation(int rc)
 #include "ntfs_disk.h"
 #include "ntfs_ro_v2.h"
 #include "../formatter/format_device.h"
+#include "ntfs_v2_writer.h"
 /* The real NTFS MFT and $Bitmap readers run against Common V2 host I/O,
  * not a copied device path. Only a completely qualified, clean volume may
  * provide its actual total/free cluster accounting. */
 typedef struct {
-    IfsFsHostRuntimeV2 host;
+    IfsFsHostRuntimeV2 host, reader_host;
+    IfsNtfsWriter *writer;
+    int fault;
     NtfsVolume media;
     NtfsLayout layout;
     NtfsReadOnlyV2 *reader;
@@ -57,6 +60,7 @@ static size_t free_session(void)
     return NTFS_V2_MAX_MOUNTS;
 }
 
+static int ensure_reader(MountedNtfs *volume);
 static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
 {
     if (!volume || !info || info->structure_bytes < sizeof(*info) ||
@@ -71,7 +75,9 @@ static int fill_volume(const MountedNtfs *volume, IfsFsVolumeInfoV2 *info)
 }
 static int ntfs_volume_query_impl(void *handle, IfsFsVolumeInfoV2 *info)
 {
-    return fill_volume(find_volume(handle), info);
+    MountedNtfs *volume=find_volume(handle);
+    const int rc=ensure_reader(volume);
+    return rc==IFS_FS_OK?fill_volume(volume,info):rc;
 }
 static int ntfs_volume_query(void *handle,IfsFsVolumeInfoV2 *info)
 {
@@ -87,86 +93,88 @@ static unsigned popcount8(uint8_t bits)
     }
     return count;
 }
-static int native_mount_impl(const IfsFsHostRuntimeV2 *host, void **output,
-                        IfsFsVolumeInfoV2 *info)
+static void close_snapshot(MountedNtfs *v)
 {
-    if (!output || !info || info->structure_bytes < sizeof(*info) ||
-        !ifs_fs_host_v2_valid(host))
-        return IFS_FS_INVALID;
-    *output = NULL;
-    /* The native MFT/$Bitmap snapshot is qualified for read-only sessions
-     * only. An exclusive writable host must not silently acquire a mount
-     * until transactional V2 mutation and recovery have been qualified. */
-    if (!(host->capabilities & IFS_FS_HOST_READ_ONLY))
-        return IFS_FS_ACCESS;
-    const size_t session_index=free_session();
-    if (session_index==NTFS_V2_MAX_MOUNTS || next_mount_token==UINTPTR_MAX)
-        return IFS_FS_BUSY;
-    uint32_t variant = 0u;
-    int result = ntfs_disk_probe(host, &variant);
-    if (result) return result;
-    MountedNtfs *volume = host->allocate(host->context, sizeof(*volume));
-    if (!volume) return IFS_FS_NO_MEMORY;
-    memset(volume, 0, sizeof(*volume));
-    /* V2 is size-versioned: older callers need not allocate fields added to
-     * a later host structure. Copy only their supplied prefix and clamp the
-     * saved size to the storage actually owned by this module. */
-    const size_t host_bytes = host->structure_bytes < sizeof(volume->host) ?
-        host->structure_bytes : sizeof(volume->host);
-    memcpy(&volume->host, host, host_bytes);
-    volume->host.structure_bytes = (uint32_t)host_bytes;
-    volume->media.fd = -1;
-    /* CORE.MOUNT must apply the same native clean-volume policy in both
-     * profiles before the hosted allocation inventory is inspected. A
-     * dirty NTFS volume is UNSUPPORTED (needs journal replay), not an
-     * apparently corrupt bitmap just because hosted inventory refused it. */
-    IfsFsVolumeInfoV2 reader_info={.structure_bytes=sizeof(reader_info)};
-    result=ntfs_ro_open_v2(&volume->host,&volume->reader,&reader_info);
-    if(result!=IFS_FS_OK) {
-        host->release(host->context, volume);
-        return result;
-    }
-    char *error = NULL;
-    if (ntfs_open_host(&volume->host, &volume->media, &error) != 0 ||
-        ntfs_read_layout(&volume->media, false, &volume->layout, &error) != 0) {
-        free(error);
-        ntfs_ro_close_v2(volume->reader);
-        ntfs_layout_free(&volume->layout);
-        ntfs_close_volume(&volume->media);
-        host->release(host->context, volume);
-        return IFS_FS_CORRUPT;
+    if(v->reader)ntfs_ro_close_v2(v->reader);
+    v->reader=NULL;ntfs_layout_free(&v->layout);ntfs_close_volume(&v->media);
+}
+static int open_snapshot(MountedNtfs *v)
+{
+    IfsFsVolumeInfoV2 info={.structure_bytes=sizeof(info)};
+    int rc=ntfs_ro_open_v2(&v->reader_host,&v->reader,&info);
+    if(rc!=IFS_FS_OK)return rc;
+    char *error=NULL;
+    if(ntfs_open_host(&v->reader_host,&v->media,&error)!=0 ||
+       ntfs_read_layout(&v->media,false,&v->layout,&error)!=0) {
+        free(error);close_snapshot(v);return IFS_FS_CORRUPT;
     }
     free(error);
-    const uint64_t total = volume->media.total_clusters;
-    const uint64_t byte_count = total / 8u;
-    uint64_t used = 0u;
-    for (uint64_t i = 0u; i < byte_count; ++i)
-        used += popcount8(volume->layout.bitmap[i]);
-    if (total % 8u) {
-        const uint8_t mask = (uint8_t)((1u << (total % 8u)) - 1u);
-        used += popcount8(volume->layout.bitmap[byte_count] & mask);
+    const uint64_t total=v->media.total_clusters;
+    uint64_t used=0u;
+    for(uint64_t i=0;i<total/8u;++i)used+=popcount8(v->layout.bitmap[i]);
+    if(total%8u)used+=popcount8(v->layout.bitmap[total/8u] &
+                              (uint8_t)((1u<<(total%8u))-1u));
+    if(used>total){close_snapshot(v);return IFS_FS_CORRUPT;}
+    v->free_clusters=total-used;return IFS_FS_OK;
+}
+static int ensure_reader(MountedNtfs *v)
+{
+    if(!v)return IFS_FS_INVALID;
+    if(v->fault)return IFS_FS_IO_ERROR;
+    if(v->writer) {
+        int rc=ifs_ntfs_writer_close(v->writer,1);v->writer=NULL;
+        if(rc!=IFS_FS_OK){v->fault=1;return rc;}
     }
-    if (used > total) {
-        ntfs_ro_close_v2(volume->reader);
-        ntfs_layout_free(&volume->layout);
-        ntfs_close_volume(&volume->media);
-        host->release(host->context, volume);
-        return IFS_FS_CORRUPT;
+    if(!v->reader) {
+        int rc=open_snapshot(v);
+        if(rc!=IFS_FS_OK){v->fault=1;return rc;}
     }
-    volume->free_clusters = total - used;
-    result = fill_volume(volume, info);
-    if (result != IFS_FS_OK) {
-        ntfs_ro_close_v2(volume->reader);
-        ntfs_layout_free(&volume->layout);
-        ntfs_close_volume(&volume->media);
-        host->release(host->context, volume);
-        return result;
-    }
-    const uintptr_t token=++next_mount_token;
-    mounted_sessions[session_index].volume=volume;
-    mounted_sessions[session_index].token=token;
-    *output=(void *)token;
     return IFS_FS_OK;
+}
+static int ensure_writer(MountedNtfs *v)
+{
+    if(!v)return IFS_FS_INVALID;
+    if(v->host.capabilities&IFS_FS_HOST_READ_ONLY)return IFS_FS_ACCESS;
+    if(v->fault)return IFS_FS_IO_ERROR;
+    if(v->writer)return IFS_FS_OK;
+    int rc=ifs_ntfs_writer_open(&v->host,&v->writer);
+    if(rc==IFS_FS_OK)close_snapshot(v);
+    else if(rc==IFS_FS_IO_ERROR)v->fault=1;
+    return rc;
+}
+static int native_mount_impl(const IfsFsHostRuntimeV2 *host,void **output,
+                             IfsFsVolumeInfoV2 *info)
+{
+    if(!output || !info || info->structure_bytes<sizeof(*info) ||
+       !ifs_fs_host_v2_valid(host))return IFS_FS_INVALID;
+    *output=NULL;
+    const int write=!(host->capabilities&IFS_FS_HOST_READ_ONLY);
+    /* A V2 host has no portable device identity. Be conservative: do not
+     * permit an exclusive mutable session alongside any other session. */
+    for(size_t i=0;i<NTFS_V2_MAX_MOUNTS;++i)
+        if(mounted_sessions[i].token && (write ||
+           !(mounted_sessions[i].volume->host.capabilities&IFS_FS_HOST_READ_ONLY)))
+            return IFS_FS_BUSY;
+    const size_t slot=free_session();
+    if(slot==NTFS_V2_MAX_MOUNTS || next_mount_token==UINTPTR_MAX)return IFS_FS_BUSY;
+    MountedNtfs *v=host->allocate(host->context,sizeof(*v));
+    if(!v)return IFS_FS_NO_MEMORY;
+    memset(v,0,sizeof(*v));v->media.fd=-1;
+    const size_t bytes=host->structure_bytes<sizeof(v->host)?
+                       host->structure_bytes:sizeof(v->host);
+    memcpy(&v->host,host,bytes);v->host.structure_bytes=(uint32_t)bytes;
+    v->reader_host=v->host;
+    v->reader_host.capabilities|=IFS_FS_HOST_READ_ONLY;
+    v->reader_host.capabilities&=~(IFS_FS_HOST_EXCLUSIVE|IFS_FS_HOST_DISCARD);
+    v->reader_host.write_at=NULL;v->reader_host.discard=NULL;
+    int rc=open_snapshot(v);
+    if(rc==IFS_FS_OK)rc=fill_volume(v,info);
+    if(rc==IFS_FS_OK && write && v->media.bytes_per_sector<host->logical_sector_bytes)
+        rc=IFS_FS_UNSUPPORTED;
+    if(rc!=IFS_FS_OK){close_snapshot(v);host->release(host->context,v);return rc;}
+    const uintptr_t token=++next_mount_token;
+    mounted_sessions[slot].volume=v;mounted_sessions[slot].token=token;
+    *output=(void *)token;return IFS_FS_OK;
 }
 static int native_mount(const IfsFsHostRuntimeV2 *host, void **output, IfsFsVolumeInfoV2 *info)
 {
@@ -177,7 +185,7 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output, IfsFsVolu
 static int native_unmount_impl(void *handle)
 {
     MountedNtfs *volume=find_volume(handle);
-    if (!volume || !volume->layout.bitmap) return IFS_FS_INVALID;
+    if (!volume) return IFS_FS_INVALID;
     for (size_t i=0u;i<NTFS_V2_MAX_MOUNTS;++i) {
         if (mounted_sessions[i].token==(uintptr_t)handle) {
             mounted_sessions[i].token=0u;
@@ -186,11 +194,12 @@ static int native_unmount_impl(void *handle)
         }
     }
     IfsFsHostRuntimeV2 host=volume->host;
-    ntfs_ro_close_v2(volume->reader);
-    ntfs_layout_free(&volume->layout);
-    ntfs_close_volume(&volume->media);
-    host.release(host.context, volume);
-    return IFS_FS_OK;
+    int rc=volume->fault?IFS_FS_IO_ERROR:IFS_FS_OK;
+    if(volume->writer) {
+        const int closed=ifs_ntfs_writer_close(volume->writer,!volume->fault);
+        if(closed!=IFS_FS_OK)rc=closed;
+    }
+    close_snapshot(volume);host.release(host.context,volume);return rc;
 }
 static int native_unmount(void *handle)
 {
@@ -201,13 +210,10 @@ static int native_unmount(void *handle)
 static int map_file_impl(void *handle, const char *path, uint64_t first,
                     IfsFsExtentV2 *out, uint32_t capacity, uint32_t *written)
 {
-    const MountedNtfs *volume = find_volume(handle);
-    if (!written)
-        return IFS_FS_INVALID;
-    *written = 0u;
-    if (!volume || !volume->reader || !out || !capacity ||
-        !(volume->host.capabilities & IFS_FS_HOST_READ_ONLY))
-        return IFS_FS_INVALID;
+    MountedNtfs *volume=find_volume(handle);
+    if(!written || !out || !capacity)return IFS_FS_INVALID;
+    *written=0u;
+    const int rc=ensure_reader(volume);if(rc!=IFS_FS_OK)return rc;
     return ntfs_ro_map_v2(volume->reader, path, first, out, capacity, written);
 }
 static int map_file(void *handle,const char *path,uint64_t first,IfsFsExtentV2 *out,uint32_t capacity,uint32_t *written)
@@ -228,9 +234,10 @@ static int ntfs_label(void *handle,char *out,uint32_t capacity,uint32_t *written
     if(!written)return IFS_FS_INVALID;
     *written=0u;
     if(!enter_operation())return IFS_FS_BUSY;
-    const MountedNtfs *volume=find_volume(handle);
-    return leave_operation(volume && volume->reader ?
-        ntfs_ro_label_v2(volume->reader,out,capacity,written):IFS_FS_INVALID);
+    MountedNtfs *volume=find_volume(handle);
+    const int rc=ensure_reader(volume);
+    return leave_operation(rc==IFS_FS_OK?
+        ntfs_ro_label_v2(volume->reader,out,capacity,written):rc);
 }
 /* Serialize the formatter with the mounted-reader registry. An exclusive
  * host lease is still mandatory; the provider additionally refuses format
@@ -253,8 +260,8 @@ static const IfsFsVolumeOpsV2 volume_ops = {
 
 static int stat_file_impl(void *handle, const char *path, IfsFsEntryV2 *entry)
 {
-    const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    MountedNtfs *volume=find_volume(handle);
+    const int rc=ensure_reader(volume);if(rc!=IFS_FS_OK)return rc;
     return ntfs_ro_stat_v2(volume->reader, path, entry);
 }
 static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
@@ -265,8 +272,8 @@ static int stat_file(void *handle,const char *path,IfsFsEntryV2 *entry)
 static int list_file_impl(void *handle, const char *path, uint32_t index,
                      IfsFsEntryV2 *entry)
 {
-    const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    MountedNtfs *volume=find_volume(handle);
+    const int rc=ensure_reader(volume);if(rc!=IFS_FS_OK)return rc;
     return ntfs_ro_list_v2(volume->reader, path, index, entry);
 }
 static int list_file(void *handle,const char *path,uint32_t index,IfsFsEntryV2 *entry)
@@ -277,8 +284,8 @@ static int list_file(void *handle,const char *path,uint32_t index,IfsFsEntryV2 *
 static int read_file_impl(void *handle, const char *path, uint64_t offset,
                      void *destination, uint32_t length)
 {
-    const MountedNtfs *volume = find_volume(handle);
-    if (!volume || !volume->reader) return IFS_FS_INVALID;
+    MountedNtfs *volume=find_volume(handle);
+    const int rc=ensure_reader(volume);if(rc!=IFS_FS_OK)return rc;
     return ntfs_ro_read_v2(volume->reader, path, offset,
                            destination, length);
 }
@@ -288,16 +295,36 @@ static int read_file(void *handle,const char *path,uint64_t offset,void *data,ui
     return leave_operation(read_file_impl(handle,path,offset,data,length));
 }
 
+static int create_file(void *handle,const char *path,uint32_t type)
+{
+    if(!enter_operation())return IFS_FS_BUSY;
+    MountedNtfs *v=find_volume(handle);
+    int rc=ensure_writer(v);
+    if(rc==IFS_FS_OK)rc=ifs_ntfs_writer_create(v->writer,path,type);
+    if(v && rc==IFS_FS_IO_ERROR)v->fault=1;
+    return leave_operation(rc);
+}
+static int write_file(void *handle,const char *path,uint64_t pos,
+                      const void *data,uint32_t count)
+{
+    if(!enter_operation())return IFS_FS_BUSY;
+    MountedNtfs *v=find_volume(handle);
+    int rc=ensure_writer(v);
+    if(rc==IFS_FS_OK)rc=ifs_ntfs_writer_write(v->writer,path,pos,data,count);
+    if(v && rc==IFS_FS_IO_ERROR)v->fault=1;
+    return leave_operation(rc);
+}
 static const IfsFsCoreOpsV2 core = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),
                 IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE | IFS_FS_CORE_MOUNT |
-                IFS_FS_CORE_STAT | IFS_FS_CORE_LIST | IFS_FS_CORE_READ },
+                IFS_FS_CORE_STAT | IFS_FS_CORE_LIST | IFS_FS_CORE_READ |
+                IFS_FS_CORE_CREATE | IFS_FS_CORE_WRITE },
     .probe = ntfs_disk_probe,
     .mount = native_mount,
     .unmount = native_unmount,
     .stat = stat_file,
     .directory_entry = list_file,
-    .read = read_file
+    .read = read_file,.create=create_file,.write=write_file
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
     if (lo > IFS_FS_GROUP_ABI_V2 || hi < IFS_FS_GROUP_ABI_V2)

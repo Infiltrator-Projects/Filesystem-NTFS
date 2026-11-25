@@ -49,7 +49,7 @@ int main(int argc, char **argv)
             IFS_FS_CORE_STAT|IFS_FS_CORE_LIST|IFS_FS_CORE_READ;
         REQUIRE((core->header.capabilities & required)==required);
         REQUIRE(core->mount && core->unmount && core->stat &&
-                core->directory_entry && core->read && !core->write);
+                core->directory_entry && core->read && core->write && core->create);
     }
     Image image = { .fd = open(argv[2], O_RDONLY), .sector = (uint32_t)strtoul(argv[3], NULL, 10) };
     struct stat status;

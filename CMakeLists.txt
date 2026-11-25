@@ -74,7 +74,7 @@ add_library(ntfs-driver SHARED
  native/ntfs_disk.c
  native/ntfs_ro_v2.c
  native/ntfs_common.c native/ntfs_catalog.c
- module/ntfs_v2_probe.c
+ module/ntfs_v2_probe.c module/ntfs_v2_writer.c
  $<TARGET_OBJECTS:ntfs-formatter>)
 add_dependencies(ntfs-driver ntfs-firmware)
 set_property(TARGET ntfs-driver APPEND PROPERTY LINK_DEPENDS "${NTFS_FIRMWARE_ELF}")
