@@ -558,8 +558,76 @@ done:
     return result;
 }
 
+/* A separate image preserves the original formatter's Unicode-label and
+ * metadata fixtures. Exercise native writable CORE without a seed program. */
+static int check_writable(const char *path)
+{
+    Image image={.fd=open(path,O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW,0600)};
+    int status=1;
+    void *mounted=NULL;
+    const IfsFsModuleApiV2 *api=infiltrator_filesystem_api_v2();
+    const IfsFsCoreOpsV2 *core=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_CORE);
+    const IfsFsVolumeOpsV2 *volume=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_VOLUME);
+    const IfsFsDefragOpsV2 *defrag=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_DEFRAG);
+    CHECK(image.fd>=0 && ftruncate(image.fd,IMAGE_BYTES)==0);
+    CHECK(core && core->create && core->write && defrag && defrag->map);
+    IfsFsHostRuntimeV2 host={
+        .abi_version=IFS_FS_HOST_ABI_V2,.structure_bytes=sizeof(host),
+        .capabilities=IFS_FS_HOST_EXCLUSIVE|IFS_FS_HOST_DURABLE,
+        .volume_bytes=IMAGE_BYTES,.logical_sector_bytes=SECTOR,
+        .physical_sector_bytes=4096u,.maximum_transfer_bytes=4096u,
+        .context=&image,.read_at=read_at,.write_at=write_at,.flush=flush,
+        .allocate=allocate,.release=release
+    };
+    IfsFsHostRuntimeV2 reader=host;
+    reader.capabilities=IFS_FS_HOST_READ_ONLY;reader.write_at=NULL;reader.flush=NULL;
+    CHECK(volume->format(&host,1u,"V2 writable test",0u)==IFS_FS_OK);
+    IfsFsVolumeInfoV2 info={.structure_bytes=sizeof(info)};
+    CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK);
+    void *peer=NULL;
+    CHECK(core->mount(&reader,&peer,&info)==IFS_FS_BUSY && !peer);
+    CHECK(core->create(mounted,"/V2-A.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-B.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    uint8_t payload[65536],actual[65536];
+    for(unsigned chunk=0;chunk<32u;++chunk) {
+        for(size_t i=0;i<sizeof(payload);++i)
+            payload[i]=(uint8_t)(i*17u+chunk);
+        CHECK(core->write(mounted,"/V2-A.BIN",(uint64_t)chunk*sizeof(payload),
+                          payload,sizeof(payload))==IFS_FS_OK);
+        for(size_t i=0;i<sizeof(payload);++i)payload[i]^=0x5au;
+        CHECK(core->write(mounted,"/V2-B.BIN",(uint64_t)chunk*sizeof(payload),
+                          payload,sizeof(payload))==IFS_FS_OK);
+    }
+    CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
+    CHECK(core->mount(&reader,&mounted,&info)==IFS_FS_OK);
+    for(unsigned chunk=0;chunk<32u;++chunk) {
+        for(size_t i=0;i<sizeof(payload);++i)payload[i]=(uint8_t)(i*17u+chunk);
+        CHECK(core->read(mounted,"/V2-A.BIN",(uint64_t)chunk*sizeof(payload),
+                         actual,sizeof(actual))==IFS_FS_OK);
+        CHECK(memcmp(payload,actual,sizeof(payload))==0);
+        for(size_t i=0;i<sizeof(payload);++i)payload[i]^=0x5au;
+        CHECK(core->read(mounted,"/V2-B.BIN",(uint64_t)chunk*sizeof(payload),
+                         actual,sizeof(actual))==IFS_FS_OK);
+        CHECK(memcmp(payload,actual,sizeof(payload))==0);
+    }
+    IfsFsExtentV2 ranges[8];uint32_t mapped=0;
+    CHECK(defrag->map(mounted,"/V2-A.BIN",0,ranges,8,&mapped)==IFS_FS_OK && mapped);
+    const unsigned before=image.writes;
+    CHECK(core->write(mounted,"/V2-A.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
+    CHECK(core->create(mounted,"/REFUSED",IFS_FS_ENTRY_FILE)==IFS_FS_ACCESS);
+    CHECK(image.writes==before);
+    CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
+    status=0;
+done:
+    if(mounted && core && core->unmount)(void)core->unmount(mounted);
+    if(image.fd>=0 && close(image.fd))status=1;
+    if(status)unlink(path);
+    return status;
+}
 int main(int argc, char **argv)
 {
+    if(argc==3 && !strcmp(argv[2],"--verify-writable"))
+        return check_writable(argv[1]);
     if (argc == 3 && !strcmp(argv[2], "--verify-native-label"))
         return check_native_volume_label(argv[1]);
     if (argc == 3 &&
@@ -645,21 +713,6 @@ int main(int argc, char **argv)
     CHECK(!memcmp(primary, backup, sizeof(primary)));
     CHECK(check_metadata_writes(&image, &host, &reader) == 0);
     CHECK(check_host_metadata_plan(&image, &host, &reader) == 0);
-    /* Create, append, verify, and reopen a real native file solely through
-     * the shipped Common V2 descriptor. No external seeder is involved. */
-    CHECK(volume->format(&host,1u,"V2 writable regression",0u)==IFS_FS_OK);
-    CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK);
-    CHECK(core->create(mounted,"/V2-WRITE.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
-    uint8_t payload[4096], actual[4096];
-    for(size_t i=0;i<sizeof(payload);++i)payload[i]=(uint8_t)(i*17u);
-    CHECK(core->write(mounted,"/V2-WRITE.BIN",0,payload,sizeof(payload))==IFS_FS_OK);
-    CHECK(core->write(mounted,"/V2-WRITE.BIN",sizeof(payload),payload,sizeof(payload))==IFS_FS_OK);
-    CHECK(core->unmount(mounted)==IFS_FS_OK);
-    CHECK(core->mount(&reader,&mounted,&info)==IFS_FS_OK);
-    CHECK(core->read(mounted,"/V2-WRITE.BIN",sizeof(payload),actual,sizeof(actual))==IFS_FS_OK);
-    CHECK(memcmp(payload,actual,sizeof(payload))==0);
-    CHECK(core->write(mounted,"/V2-WRITE.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
-    CHECK(core->unmount(mounted)==IFS_FS_OK);
     status = 0;
 done:
     if (close(image.fd)) status = 1;
