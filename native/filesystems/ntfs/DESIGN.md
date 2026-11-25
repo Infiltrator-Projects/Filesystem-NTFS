@@ -1,5 +1,15 @@
 # NTFS: Native Filesystem Implementation and Ownership
 
+## Current production architecture
+
+Hosted Common V2 declares probe, mount, stat, list, read, format, volume query and label retrieval; the native extent mapping interface is read-only. Format accepts 512, 1024, 2048 and 4096-byte logical sectors and up to 128 UTF-16 label code units. The formatter integrates adapted NTFS-3G source into the same SO, not a separately installed FUSE library. Formatting is serialised against mounted readers. Firmware reader qualification is distinct from production BOOT acceptance. The canonical entry point is `infiltrator_filesystem_api_v2`. Consumers must negotiate the actual profile and operation masks and use bounded, partition-relative host I/O. A source-level callback does not by itself establish that every format variant or host profile is qualified.
+
+The canonical package installs one Common V2 shared object and its technical PDF. The native RUN downloads and verifies the exact source revision. No independent filesystem-specific kernel or EFI driver or FUSE substitute is distributed. See the [current provider README](../../../README.md) for current scope and the linked qualification evidence.
+
+## Historical source and qualification record
+
+> The following material preserves inherited design, original-format semantics, source attribution and earlier qualification evidence. Earlier implementation status, separate driver layouts, packaging instructions and ABI statements are historical, not the present release contract. No new test result is claimed by this record.
+
 ## Original source baseline
 
 The actual complete original Linux NTFS3 implementation is available for
