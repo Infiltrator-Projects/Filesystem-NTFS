@@ -1,5 +1,4 @@
 %PDF-1.4
-%‚„œ”
 1 0 obj
 << /Type /Catalog /Pages 2 0 R >>
 endobj
@@ -211,7 +210,7 @@ endobj
 << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R /F3 5 0 R >> >> /Contents 21 0 R >>
 endobj
 21 0 obj
-<< /Length 2029 >>
+<< /Length 2013 >>
 stream
 0.05 0.13 0.22 rg 0 749 595 93 re f
 0.04 0.54 0.60 rg 50 747 115 4 re f
@@ -229,7 +228,7 @@ BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 595.0 Tm (1. Microsoft: Master File 
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 565.0 Tm (https://learn.microsoft.com/en-us/windows/desktop/devnotes/master-file-table) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 535.0 Tm (2. Microsoft: Master File Table, local file systems overview) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 505.0 Tm (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 475.0 Tm (Our independent .so, optional .ko, build procedures and test evidence describe a separate) Tj ET
+BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 475.0 Tm (Our Common V2 .so, build procedures and test evidence describe a separate) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 458.0 Tm (implementation. The source-level history in this PDF cannot itself qualify production) Tj ET
 BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 441.0 Tm (writes, boot, recovery or cross-platform compatibility.) Tj ET
 endstream
@@ -387,37 +386,37 @@ endobj
 xref
 0 30
 0000000000 65535 f 
-0000000015 00000 n 
-0000000064 00000 n 
-0000000198 00000 n 
-0000000268 00000 n 
-0000000343 00000 n 
-0000000411 00000 n 
-0000000557 00000 n 
-0000003380 00000 n 
-0000003526 00000 n 
-0000005656 00000 n 
-0000005804 00000 n 
-0000007904 00000 n 
-0000008052 00000 n 
-0000010067 00000 n 
-0000010215 00000 n 
-0000012105 00000 n 
-0000012253 00000 n 
-0000014035 00000 n 
-0000014183 00000 n 
-0000015781 00000 n 
-0000015929 00000 n 
-0000018010 00000 n 
-0000018158 00000 n 
-0000021453 00000 n 
-0000021601 00000 n 
-0000024615 00000 n 
-0000024763 00000 n 
-0000027832 00000 n 
-0000027980 00000 n 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000192 00000 n 
+0000000262 00000 n 
+0000000337 00000 n 
+0000000405 00000 n 
+0000000551 00000 n 
+0000003374 00000 n 
+0000003520 00000 n 
+0000005650 00000 n 
+0000005798 00000 n 
+0000007898 00000 n 
+0000008046 00000 n 
+0000010061 00000 n 
+0000010209 00000 n 
+0000012099 00000 n 
+0000012247 00000 n 
+0000014029 00000 n 
+0000014177 00000 n 
+0000015775 00000 n 
+0000015923 00000 n 
+0000017988 00000 n 
+0000018136 00000 n 
+0000021431 00000 n 
+0000021579 00000 n 
+0000024593 00000 n 
+0000024741 00000 n 
+0000027810 00000 n 
+0000027958 00000 n 
 trailer
 << /Size 30 /Root 1 0 R >>
 startxref
-31786
+31764
 %%EOF
