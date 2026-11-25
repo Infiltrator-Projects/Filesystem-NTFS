@@ -623,6 +623,11 @@ int main(int argc, char **argv)
     IfsFsVolumeInfoV2 info = {.structure_bytes = sizeof(info)};
     void *mounted = NULL;
     CHECK(core->mount(&reader, &mounted, &info) == IFS_FS_OK);
+    /* A format attempt must not invalidate a live read-only session,
+     * even if the caller supplies a second, nominally exclusive host. */
+    const unsigned mounted_writes=image.writes, mounted_flushes=image.flushes;
+    CHECK(volume->format(&host,1u,"Must not overwrite",0u)==IFS_FS_BUSY);
+    CHECK(image.writes==mounted_writes && image.flushes==mounted_flushes);
     char read_label[768],tiny_label[2]={'X','X'};
     uint32_t label_bytes=UINT32_MAX;
     CHECK(volume->label && !volume->set_label &&

@@ -232,11 +232,23 @@ static int ntfs_label(void *handle,char *out,uint32_t capacity,uint32_t *written
     return leave_operation(volume && volume->reader ?
         ntfs_ro_label_v2(volume->reader,out,capacity,written):IFS_FS_INVALID);
 }
+/* Serialize the formatter with the mounted-reader registry. An exclusive
+ * host lease is still mandatory; the provider additionally refuses format
+ * while any reader is live, since it cannot prove distinct device identity. */
+static int native_format(const IfsFsHostRuntimeV2 *host, uint32_t variant,
+                         const char *label, uint32_t flags)
+{
+    if (!enter_operation()) return IFS_FS_BUSY;
+    for (size_t i=0u; i<NTFS_V2_MAX_MOUNTS; ++i)
+        if (mounted_sessions[i].token) return leave_operation(IFS_FS_BUSY);
+    return leave_operation(ifs_ntfs_format(host,variant,label,flags));
+}
+
 static const IfsFsVolumeOpsV2 volume_ops = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsVolumeOpsV2),
         IFS_FS_GROUP_VOLUME, 0u, IFS_FS_VOLUME_QUERY | IFS_FS_VOLUME_FORMAT | IFS_FS_VOLUME_LABEL_GET },
     .query = ntfs_volume_query, .label=ntfs_label,
-    .format = ifs_ntfs_format
+    .format = native_format
 };
 
 static int stat_file_impl(void *handle, const char *path, IfsFsEntryV2 *entry)
