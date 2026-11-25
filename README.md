@@ -1,31 +1,36 @@
 # Filesystem-NTFS
-Independent filesystem implementation for InfiltratorOS, using the shared Common ABI.
 
-## Installer files
+## 1. Purpose and format scope
 
-- `/System/Filesystems/NTFS.so`
-- `/System/Resources/Documentation/Filesystem-NTFS.pdf`
+NTFS, including native NTFS 3.1 data-volume formatting. This repository owns the format-specific implementation of `NTFS.so` for InfiltratorOS.
 
-The Debian package and source-embedded native installer deliver the Common V2 module and its manual. Only a single `NTFS.so` filesystem provider is shipped; no Linux kernel filesystem module or separate FUSE provider is supplied.
+## 2. On-disk architecture and invariants
 
-InfiltratorOS calls `--system-package-mode` to build and install the native
-shared object and PDF. Use `--build-only --output DIRECTORY` to build a
-Debian package.
+Boot geometry, master file table, allocation bitmap, attributes and runlists define file and allocation ownership. Update-sequence fixups validate torn-write protection, including 512-byte subrecords within genuine 4Kn media. Resident data has no separate physical extent; sparse mappings contain logical gaps.
 
-## Common V2
+## 3. Common V2 implementation and capabilities
 
-NTFS.so provides probing, read-only mount and verified MFT and bitmap volume
-accounting. Its Common V2 formatter creates NTFS 3.1 data volumes using the
-variant returned by its probe (`1`). It accepts genuine 512-, 1024-, 2048- and 4096-byte logical sectors (including 512e and 4Kn), validated by separate formatting, probing and mount tests. UTF-8 volume labels contain up to 128 UTF-16 code units. Formatting creates new filesystem structures and leaves unallocated sectors untouched.
+Hosted Common V2 declares probe, mount, stat, list, read, format, volume query and label retrieval; the native extent mapping interface is read-only. Format accepts 512, 1024, 2048 and 4096-byte logical sectors and up to 128 UTF-16 label code units. The formatter integrates adapted NTFS-3G source into the same SO, not a separately installed FUSE library. Formatting is serialised against mounted readers. Firmware reader qualification is distinct from production BOOT acceptance. The canonical entry point is `infiltrator_filesystem_api_v2`. Consumers must negotiate the actual profile and operation masks and use bounded, partition-relative host I/O. A source-level callback does not by itself establish that every format variant or host profile is qualified.
 
-Formatting runs inside NTFS.so and writes through the exclusive Common V2
-host. The [format engine](formatter/README.md) integrates adapted NTFS-3G helper source at the pinned upstream revision `78414d93613532fd82f3a82aba5d4a1c32898781`, compiled as position-independent objects into `NTFS.so`. The module does not link to a separately installed NTFS-3G or FUSE shared library. Its native source-embedded `.run` carries the required formatter source. Real-media tests create images through Common V2 and seed files using a C test fixture linked to this same embedded source; no `mkntfs`, `ntfscp`, `ntfslabel`, `ntfsfix` or `ntfsresize` executable is invoked. Original code provenance and attribution remain applicable. Common V2 also exposes read-only physical
-extent mapping for regular files. Sparse regions are gaps in the logical
-offsets. Resident data has no separate physical data extent. Compressed,
-encrypted and reparse-point files are outside the map contract. General
-namespace access supports hosted read-only stat, directory enumeration and file reads. Relocation and recovery through Common V2 remain pending.
+## 4. Integrity, mutation, allocation and recovery
 
-The hosted and embedded freestanding profiles share the on-disk NTFS boot geometry probe. Read-only hosts can use 512-byte or 4 KiB transfer sectors independently of the formatted NTFS sector size. Native MFT torn-write protection validates the on-disk update-sequence count:
-512-byte subrecords remain valid inside genuine 4Kn volumes. The freestanding
-firmware reader supports validated read-only probe, mount, stat, list and read
-operations; physical BOOT/Common V2 integration has not yet been qualified.
+Compressed, encrypted and reparse-point files are outside the documented physical-map contract. Formatting leaves unallocated sectors untouched; full writable namespace, relocation, recovery and physical-media crash safety are separate qualifications. For destructive operations, require the applicable exclusive writable host, durability contract and format-specific validation. Never silently substitute a kernel or FUSE driver or treat a rejected or unavailable operation as success. Preserve original disk-format semantics; relocation and recovery are separate from ordinary file I/O.
+
+## 5. Build, installation and release
+
+The target installation is `/System/Filesystems/NTFS.so` and `/System/Resources/Documentation/Filesystem-NTFS.pdf`. The project release policy is a portable amd64 DEB and a CPU-native source-first RUN, with GitHub's automatic source archive; do not treat this policy statement as verification of the current installer payload. The release workflow is the authoritative executable build and package specification. Historical adapters and test artifacts are not additional production filesystem authorities.
+
+## 6. Qualification and limitations
+
+[Recorded qualification workflow](https://github.com/Infiltrator-Projects/Filesystem-NTFS/actions/runs/45526878687) · [Current workflows](https://github.com/Infiltrator-Projects/Filesystem-NTFS/actions?query=branch%3Amain). A successful workflow establishes the tested scope only, not complete original-format parity, physical-media crash safety, or production BOOT/kernel integration. Use disposable images for destructive qualification.
+
+## 7. Technical references and provenance
+
+- [Provider implementation](module/ntfs_v2_probe.c)
+- [Native design or source provenance](native/filesystems/ntfs/DESIGN.md)
+- [Migration and source history](MIGRATION_STATUS.md)
+- [Original-format reference source](docs/NTFS.pages) and [PDF](docs/NTFS.pdf)
+- [Project philosophy](docs/PHILOSOPHY.md)
+- [Common ABI](https://github.com/Infiltrator-Projects/Libraries)
+
+The original-format reference and historical migration notes describe different evidence from the current production provider. When descriptions disagree, the current exported descriptor, implementation, executable tests and exact-revision release evidence take precedence.
