@@ -560,6 +560,49 @@ done:
 
 /* A separate image preserves the original formatter's Unicode-label and
  * metadata fixtures. Exercise native writable CORE without a seed program. */
+/* Independent real-media oracle: compare the provider's physical ranges
+ * with the existing native $Bitmap reader, including every cluster and
+ * any bytes past allocator geometry. Page size one stresses termination
+ * and exact cursor continuation; no file extent is used to infer free.
+ */
+static int check_allocation_map(const IfsFsModuleApiV2 *api,void *mounted,
+    const IfsFsHostRuntimeV2 *reader,const IfsFsVolumeInfoV2 *info)
+{
+    const IfsFsAllocationOpsV2 *ops=(const void *)
+        ifs_fs_group_v2(api,IFS_FS_GROUP_ALLOCATION);
+    NtfsVolume raw={.fd=-1};NtfsLayout layout={0};char *error=NULL;
+    int status=1;
+    CHECK(ops && ops->map && ops->header.capabilities==IFS_FS_ALLOCATION_MAP);
+    CHECK(ntfs_open_host(reader,&raw,&error)==0);
+    CHECK(ntfs_read_layout(&raw,false,&layout,&error)==0);
+    uint64_t at=0u,unknown=0u,free_bytes=0u;
+    const uint64_t unit=raw.cluster_size,data_end=raw.total_clusters*unit;
+    for(;;) {
+        IfsFsAllocationRangeV2 range={0};
+        uint32_t count=99u;
+        uint64_t next=at;
+        int rc=ops->map(mounted,at,&range,1u,&count);
+        CHECK(ifs_fs_allocation_page_v2_valid(reader->volume_bytes,at,rc,
+              &range,1u,count,&next,&unknown));
+        if(rc==IFS_FS_END)break;
+        CHECK(next>at && !unknown);
+        if(at<data_end) {
+            CHECK(!(at%unit) && !(next%unit) && next<=data_end);
+            for(uint64_t cluster=at/unit;cluster<next/unit;++cluster)
+                CHECK(range.state==(ntfs_bitmap_bit(&layout,cluster)?
+                      IFS_FS_SPACE_ALLOCATED:IFS_FS_SPACE_FREE));
+            if(range.state==IFS_FS_SPACE_FREE)free_bytes+=range.length;
+        } else CHECK(range.state==IFS_FS_SPACE_RESERVED);
+        at=next;
+    }
+    CHECK(at==reader->volume_bytes && !unknown && free_bytes==info->free_bytes);
+    IfsFsAllocationRangeV2 invalid={0};uint32_t count=99u;
+    CHECK(ops->map(mounted,reader->volume_bytes+1u,&invalid,1u,&count)==IFS_FS_INVALID && !count);
+    status=0;
+done:
+    free(error);ntfs_layout_free(&layout);ntfs_close_volume(&raw);
+    return status;
+}
 static int check_writable(const char *path)
 {
     Image image={.fd=open(path,O_RDWR|O_CREAT|O_EXCL|O_NOFOLLOW,0600)};
@@ -659,6 +702,10 @@ static int check_writable(const char *path)
     CHECK(core->stat(mounted,"/ESCAPE",&nested)==IFS_FS_NOT_FOUND);
     CHECK(core->stat(mounted,"/V2-DIR/SUB/REMOVE.BIN",&nested)==IFS_FS_NOT_FOUND);
     CHECK(core->stat(mounted,"/V2-DIR/EMPTY",&nested)==IFS_FS_NOT_FOUND);
+    CHECK(volume->query(mounted,&info)==IFS_FS_OK);
+    const unsigned map_writes=image.writes;
+    CHECK(check_allocation_map(api,mounted,&reader,&info)==0);
+    CHECK(image.writes==map_writes);
     uint64_t covered=0u;
     for(uint64_t page=0u;page<=sizeof(small);++page) {
         mapped=99u;

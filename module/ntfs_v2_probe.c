@@ -229,6 +229,77 @@ static const IfsFsDefragOpsV2 defrag_ops = {
     .map = map_file
 };
 
+/* Whole-volume allocation is sourced from NTFS's own validated $Bitmap,
+ * not the file catalogue. This includes metadata and bad-cluster ownership
+ * wherever their bits are set. Unallocated clusters in the dynamic MFT
+ * preference zone remain free according to NTFS volume accounting: that
+ * zone is a placement preference, not permanently allocated storage.
+ * A partial cluster or partition tail outside allocator geometry is
+ * RESERVED rather than incorrectly presented as available file space.
+ */
+static int allocation_map_impl(void *handle,uint64_t first,
+    IfsFsAllocationRangeV2 *ranges,uint32_t capacity,uint32_t *written)
+{
+    MountedNtfs *v=find_volume(handle);
+    if(!written)return IFS_FS_INVALID;
+    *written=0u;
+    if(!ranges || !capacity)return IFS_FS_INVALID;
+    const int rc=ensure_reader(v);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint64_t unit=v->media.cluster_size,total=v->media.total_clusters;
+    const uint64_t bytes=v->host.volume_bytes;
+    if(!unit || total>bytes/unit ||
+       v->layout.bitmap_bytes<total/8u+(total%8u!=0u))
+        return IFS_FS_CORRUPT;
+    const uint64_t data_end=total*unit;
+    if(first>bytes)return IFS_FS_INVALID;
+    if(first==bytes)return IFS_FS_END;
+    uint64_t at=first;
+    uint32_t n=0u;
+    while(at<bytes && n<capacity) {
+        if(v->host.cancelled && v->host.cancelled(v->host.context))
+            return IFS_FS_BUSY;
+        uint64_t end=bytes;
+        uint32_t state=IFS_FS_SPACE_RESERVED;
+        if(at<data_end) {
+            uint64_t cluster=at/unit;
+            const int used=ntfs_bitmap_bit(&v->layout,cluster);
+            state=used?IFS_FS_SPACE_ALLOCATED:IFS_FS_SPACE_FREE;
+            ++cluster;
+            /* Skip homogeneous full bitmap bytes while preserving exact
+             * boundaries at every bit transition. Check cancellation
+             * periodically even on very large contiguous volumes. */
+            while(cluster<total) {
+                if(!(cluster%4096u) && v->host.cancelled &&
+                   v->host.cancelled(v->host.context))return IFS_FS_BUSY;
+                if(!(cluster%8u) && total-cluster>=8u &&
+                   v->layout.bitmap[cluster/8u]==(used?0xffu:0u)) {
+                    cluster+=8u;continue;
+                }
+                if(ntfs_bitmap_bit(&v->layout,cluster)!=used)break;
+                ++cluster;
+            }
+            end=cluster*unit;
+        }
+        ranges[n++]=(IfsFsAllocationRangeV2){at,end-at,state,0u};
+        at=end;
+    }
+    *written=n;
+    return IFS_FS_OK;
+}
+static int allocation_map(void *handle,uint64_t first,
+    IfsFsAllocationRangeV2 *ranges,uint32_t capacity,uint32_t *written)
+{
+    if(written)*written=0u;
+    if(!enter_operation())return IFS_FS_BUSY;
+    return leave_operation(allocation_map_impl(handle,first,ranges,capacity,written));
+}
+static const IfsFsAllocationOpsV2 allocation_ops={
+    .header={IFS_FS_GROUP_ABI_V2,sizeof(IfsFsAllocationOpsV2),
+             IFS_FS_GROUP_ALLOCATION,0u,IFS_FS_ALLOCATION_MAP},
+    .map=allocation_map
+};
+
 static int ntfs_label(void *handle,char *out,uint32_t capacity,uint32_t *written)
 {
     if(!written)return IFS_FS_INVALID;
@@ -341,12 +412,14 @@ static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
     if (id == IFS_FS_GROUP_CORE) return &core.header;
     if (id == IFS_FS_GROUP_VOLUME) return &volume_ops.header;
     if (id == IFS_FS_GROUP_DEFRAG) return &defrag_ops.header;
+    if (id == IFS_FS_GROUP_ALLOCATION) return &allocation_ops.header;
     return NULL;
 }
 static const IfsFsModuleApiV2 api = {
     IFS_FS_COMMON_ABI_V2, sizeof(IfsFsModuleApiV2), "ntfs",
     IFS_FS_PROFILE_HOSTED, IFS_FS_GROUP_BIT(IFS_FS_GROUP_CORE) |
-        IFS_FS_GROUP_BIT(IFS_FS_GROUP_VOLUME) | IFS_FS_GROUP_BIT(IFS_FS_GROUP_DEFRAG), query
+        IFS_FS_GROUP_BIT(IFS_FS_GROUP_VOLUME) | IFS_FS_GROUP_BIT(IFS_FS_GROUP_DEFRAG) |
+        IFS_FS_GROUP_BIT(IFS_FS_GROUP_ALLOCATION), query
 };
 __attribute__((visibility("default")))
 const IfsFsModuleApiV2 *infiltrator_filesystem_api_v2(void) { return &api; }
