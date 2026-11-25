@@ -229,7 +229,8 @@ static int parent_inode(IfsNtfsWriter *w,const char *path,ntfs_inode **out,
         if(rc!=IFS_FS_OK)return rc;
         parent=ntfs_pathname_to_inode(w->volume,NULL,prefix);
         if(!parent)return lookup_error();
-        if(parent->mft_no<24u || !(parent->flags&FILE_ATTR_DIRECTORY) ||
+        if(parent->mft_no<24u || !parent->mrec ||
+           !(le16_to_cpu(parent->mrec->flags)&NTFS_RECORD_DIRECTORY) ||
            (parent->flags&(FILE_ATTR_REPARSE_POINT|FILE_ATTR_READONLY))) {
             rc=close_inode(w,parent);
             return rc==IFS_FS_OK?IFS_FS_UNSUPPORTED:rc;
@@ -281,7 +282,8 @@ int ifs_ntfs_writer_write(IfsNtfsWriter *w,const char *path,uint64_t offset,
     if(!file)return lookup_error();
     rc=IFS_FS_UNSUPPORTED;
     ntfs_attr *stream=NULL;
-    if(file->mft_no<24u ||
+    if(file->mft_no<24u || !file->mrec ||
+       (le16_to_cpu(file->mrec->flags)&NTFS_RECORD_DIRECTORY) ||
        (file->flags&(FILE_ATTR_DIRECTORY|FILE_ATTR_REPARSE_POINT|
                      FILE_ATTR_ENCRYPTED|FILE_ATTR_COMPRESSED|
                      FILE_ATTR_SPARSE_FILE|FILE_ATTR_READONLY)))goto done;
