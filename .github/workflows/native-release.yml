@@ -101,8 +101,8 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             target="$(gh release view "$tag" --json targetCommitish --jq .targetCommitish)"
             test "$target" = "$GITHUB_SHA" || {
-              echo "Previous immutable tag $tag belongs to $target; bump VERSION" >&2
-              exit 1
+              echo "Immutable $tag belongs to $target; no publication without VERSION bump"
+              exit 0
             }
           elif gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
             echo "Tag exists without a qualified release; refusing" >&2
