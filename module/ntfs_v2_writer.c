@@ -300,6 +300,44 @@ done:
     if(ntfs_inode_close(file)){w->fault=1;rc=IFS_FS_IO_ERROR;}
     return w->fault?IFS_FS_IO_ERROR:rc;
 }
+/* Unlink using the native NTFS index and allocation engine. The caller
+ * owns the exclusive durable lease. The native delete consumes BOTH inode
+ * references on success or failure; closing them again would be unsafe.
+ * Refuse special metadata, read-only objects and nonempty directories
+ * before the mutating call. An unexpected failure after entry leaves the
+ * volume dirty and prevents subsequent operations from hiding it.
+ */
+int ifs_ntfs_writer_remove(IfsNtfsWriter *w,const char *path)
+{
+    int rc=writable(w);if(rc!=IFS_FS_OK)return rc;
+    ntfschar name[255];u8 count=0;
+    ntfs_inode *parent=NULL;
+    rc=parent_inode(w,path,&parent,name,&count);
+    if(rc!=IFS_FS_OK)return rc;
+    ntfs_inode *file=ntfs_pathname_to_inode(w->volume,NULL,path);
+    if(!file) {
+        rc=lookup_error();
+        return close_inode(w,parent)==IFS_FS_OK?rc:IFS_FS_IO_ERROR;
+    }
+    if(file->mft_no<24u || !file->mrec ||
+       (file->flags&(FILE_ATTR_REPARSE_POINT|FILE_ATTR_READONLY))) {
+        rc=IFS_FS_UNSUPPORTED;goto refuse;
+    }
+    if((le16_to_cpu(file->mrec->flags)&NTFS_RECORD_DIRECTORY) &&
+       ntfs_check_empty_dir(file)) {
+        rc=errno==ENOTEMPTY?IFS_FS_BUSY:IFS_FS_IO_ERROR;
+        goto refuse;
+    }
+    if(ntfs_delete(w->volume,path,file,parent,name,count) || w->fault) {
+        w->fault=1;return IFS_FS_IO_ERROR;
+    }
+    return IFS_FS_OK;
+refuse:
+    if(close_inode(w,file)!=IFS_FS_OK)rc=IFS_FS_IO_ERROR;
+    if(close_inode(w,parent)!=IFS_FS_OK)rc=IFS_FS_IO_ERROR;
+    return rc;
+}
+
 int ifs_ntfs_writer_close(IfsNtfsWriter *w,int commit)
 {
     if(!w)return IFS_FS_INVALID;

@@ -570,7 +570,7 @@ static int check_writable(const char *path)
     const IfsFsVolumeOpsV2 *volume=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_VOLUME);
     const IfsFsDefragOpsV2 *defrag=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_DEFRAG);
     CHECK(image.fd>=0 && ftruncate(image.fd,IMAGE_BYTES)==0);
-    CHECK(core && core->create && core->write && defrag && defrag->map);
+    CHECK(core && core->create && core->write && core->remove && defrag && defrag->map);
     IfsFsHostRuntimeV2 host={
         .abi_version=IFS_FS_HOST_ABI_V2,.structure_bytes=sizeof(host),
         .capabilities=IFS_FS_HOST_EXCLUSIVE|IFS_FS_HOST_DURABLE,
@@ -604,7 +604,24 @@ static int check_writable(const char *path)
     CHECK(core->create(mounted,"/V2-DIR//ESCAPE",IFS_FS_ENTRY_FILE)!=IFS_FS_OK);
     CHECK(core->create(mounted,"/MISSING/DATA.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_NOT_FOUND);
     CHECK(core->write(mounted,"/V2-DIR/SUB",0,small,sizeof(small))!=IFS_FS_OK);
+    /* Allocate a disposable ordinary file, then remove it using the same
+     * provider as production. Verify the parent guard and read-only lease
+     * separately, and confirm actual allocation accounting after remount. */
     uint8_t payload[65536],actual[65536];
+    memset(payload,0x7c,sizeof(payload));
+    CHECK(core->create(mounted,"/V2-DIR/SUB/REMOVE.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    for(unsigned chunk=0;chunk<16u;++chunk)
+        CHECK(core->write(mounted,"/V2-DIR/SUB/REMOVE.BIN",
+                         (uint64_t)chunk*sizeof(payload),payload,sizeof(payload))==IFS_FS_OK);
+    CHECK(volume->query(mounted,&info)==IFS_FS_OK);
+    const uint64_t allocated_free=info.free_bytes;
+    CHECK(core->remove(mounted,"/V2-DIR/SUB")==IFS_FS_BUSY);
+    CHECK(core->remove(mounted,"/V2-DIR/SUB/REMOVE.BIN")==IFS_FS_OK);
+    CHECK(core->remove(mounted,"/V2-DIR/SUB/REMOVE.BIN")==IFS_FS_NOT_FOUND);
+    CHECK(volume->query(mounted,&info)==IFS_FS_OK &&
+          info.free_bytes>=allocated_free+16u*sizeof(payload));
+    CHECK(core->create(mounted,"/V2-DIR/EMPTY",IFS_FS_ENTRY_DIRECTORY)==IFS_FS_OK);
+    CHECK(core->remove(mounted,"/V2-DIR/EMPTY")==IFS_FS_OK);
     for(unsigned chunk=0;chunk<32u;++chunk) {
         for(size_t i=0;i<sizeof(payload);++i)
             payload[i]=(uint8_t)(i*17u+chunk);
@@ -640,6 +657,8 @@ static int check_writable(const char *path)
     CHECK(core->read(mounted,"/V2-DIR/SUB/DATA.BIN",0,actual,sizeof(small))==IFS_FS_OK);
     CHECK(!memcmp(small,actual,sizeof(small)));
     CHECK(core->stat(mounted,"/ESCAPE",&nested)==IFS_FS_NOT_FOUND);
+    CHECK(core->stat(mounted,"/V2-DIR/SUB/REMOVE.BIN",&nested)==IFS_FS_NOT_FOUND);
+    CHECK(core->stat(mounted,"/V2-DIR/EMPTY",&nested)==IFS_FS_NOT_FOUND);
     uint64_t covered=0u;
     for(uint64_t page=0u;page<=sizeof(small);++page) {
         mapped=99u;
@@ -658,6 +677,7 @@ static int check_writable(const char *path)
     const unsigned before=image.writes;
     CHECK(core->write(mounted,"/V2-A.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
     CHECK(core->create(mounted,"/REFUSED",IFS_FS_ENTRY_FILE)==IFS_FS_ACCESS);
+    CHECK(core->remove(mounted,"/V2-DIR/SUB/DATA.BIN")==IFS_FS_ACCESS);
     CHECK(image.writes==before);
     CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
     status=0;
