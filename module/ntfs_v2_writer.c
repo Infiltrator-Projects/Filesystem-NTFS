@@ -171,14 +171,14 @@ int ifs_ntfs_writer_open(const IfsFsHostRuntimeV2 *h,IfsNtfsWriter **out)
     *out=w;return IFS_FS_OK;
 }
 
-/* Start with a deliberately bounded namespace: ordinary root regular files,
- * portable ASCII names, no links/reparse points, no ADS or sparse streams.
- * Unsupported filenames/layouts are refused, never translated to OS paths. */
-static int root_name(const char *path,ntfschar name[255],u8 *length)
+/* Validate every component before handing a path to the native engine.
+ * The hosted writer accepts ordinary ASCII directories and files, but
+ * still rejects ADS, traversal, reparse points and system metadata.
+ * The string is a filesystem-relative name, never an operating-system path.
+ */
+static int component_name(const char *p,size_t n,ntfschar name[255],u8 *length)
 {
-    if(!path || path[0]!='/' || !path[1])return IFS_FS_INVALID;
-    const char *p=path+1;size_t n=strlen(p);
-    if(n>255u || p[0]=='.' || p[0]=='$' || p[n-1]==' ' || p[n-1]=='.')
+    if(!n || n>255u || p[0]=='.' || p[0]=='$' || p[n-1]==' ' || p[n-1]=='.')
         return IFS_FS_UNSUPPORTED;
     for(size_t i=0;i<n;++i) {
         unsigned char c=(unsigned char)p[i];
@@ -186,6 +186,56 @@ static int root_name(const char *path,ntfschar name[255],u8 *length)
         name[i]=cpu_to_le16(c);
     }
     *length=(u8)n;return IFS_FS_OK;
+}
+static int lookup_error(void)
+{
+    return errno==ENOENT?IFS_FS_NOT_FOUND:
+           errno==ENOMEM?IFS_FS_NO_MEMORY:IFS_FS_IO_ERROR;
+}
+static int close_inode(IfsNtfsWriter *w,ntfs_inode *inode)
+{
+    if(ntfs_inode_close(inode)){w->fault=1;return IFS_FS_IO_ERROR;}
+    return IFS_FS_OK;
+}
+/* Resolve each intermediate prefix separately so an NTFS reparse point
+ * can never silently redirect a write. Ordinary directories can be
+ * nested; the final component is returned in the native Unicode form.
+ * The caller owns the open parent on success.
+ */
+static int parent_inode(IfsNtfsWriter *w,const char *path,ntfs_inode **out,
+                        ntfschar name[255],u8 *length)
+{
+    char prefix[4096];
+    *out=NULL;
+    if(!path || path[0]!='/' || !path[1])return IFS_FS_INVALID;
+    size_t total=strnlen(path,sizeof(prefix));
+    if(total>=sizeof(prefix))return IFS_FS_UNSUPPORTED;
+    const char *p=path+1;
+    /* Check all syntax before any native lookup. */
+    for(;;) {
+        const char *slash=strchr(p,'/');
+        size_t n=slash?(size_t)(slash-p):strlen(p);
+        int rc=component_name(p,n,name,length);
+        if(rc!=IFS_FS_OK)return rc;
+        if(!slash)break;
+        p=slash+1;
+    }
+    ntfs_inode *parent=ntfs_inode_open(w->volume,FILE_root);
+    if(!parent)return lookup_error();
+    for(const char *slash=strchr(path+1,'/');slash;slash=strchr(slash+1,'/')) {
+        const size_t n=(size_t)(slash-path);
+        memcpy(prefix,path,n);prefix[n]='\0';
+        int rc=close_inode(w,parent);
+        if(rc!=IFS_FS_OK)return rc;
+        parent=ntfs_pathname_to_inode(w->volume,NULL,prefix);
+        if(!parent)return lookup_error();
+        if(parent->mft_no<24u || !(parent->flags&FILE_ATTR_DIRECTORY) ||
+           (parent->flags&(FILE_ATTR_REPARSE_POINT|FILE_ATTR_READONLY))) {
+            rc=close_inode(w,parent);
+            return rc==IFS_FS_OK?IFS_FS_UNSUPPORTED:rc;
+        }
+    }
+    *out=parent;return IFS_FS_OK;
 }
 static int writable(IfsNtfsWriter *w)
 {
@@ -197,20 +247,21 @@ static int writable(IfsNtfsWriter *w)
 int ifs_ntfs_writer_create(IfsNtfsWriter *w,const char *path,uint32_t type)
 {
     int rc=writable(w);if(rc!=IFS_FS_OK)return rc;
-    if(type!=IFS_FS_ENTRY_FILE)return IFS_FS_UNSUPPORTED;
+    if(type!=IFS_FS_ENTRY_FILE && type!=IFS_FS_ENTRY_DIRECTORY)
+        return IFS_FS_UNSUPPORTED;
     ntfschar name[255];u8 count=0;
-    rc=root_name(path,name,&count);if(rc!=IFS_FS_OK)return rc;
-    ntfs_inode *root=ntfs_inode_open(w->volume,FILE_root);
-    if(!root)return IFS_FS_IO_ERROR;
-    ntfs_inode *file=ntfs_create(root,const_cpu_to_le32(0),name,count,S_IFREG);
+    ntfs_inode *parent=NULL;
+    rc=parent_inode(w,path,&parent,name,&count);if(rc!=IFS_FS_OK)return rc;
+    ntfs_inode *file=ntfs_create(parent,const_cpu_to_le32(0),name,count,
+                               type==IFS_FS_ENTRY_DIRECTORY?S_IFDIR:S_IFREG);
     if(!file) {
         int e=errno;
-        if(ntfs_inode_close(root)){w->fault=1;return IFS_FS_IO_ERROR;}
+        if(close_inode(w,parent)!=IFS_FS_OK)return IFS_FS_IO_ERROR;
         if(e==EEXIST)return IFS_FS_EXISTS;
         w->fault=1;return e==ENOSPC?IFS_FS_NO_SPACE:IFS_FS_IO_ERROR;
     }
     int failed=ntfs_inode_close(file);
-    if(ntfs_inode_close(root))failed=1;
+    if(ntfs_inode_close(parent))failed=1;
     if(failed || w->fault){w->fault=1;return IFS_FS_IO_ERROR;}
     return IFS_FS_OK;
 }
@@ -218,12 +269,16 @@ int ifs_ntfs_writer_write(IfsNtfsWriter *w,const char *path,uint64_t offset,
                          const void *data,uint32_t count)
 {
     int rc=writable(w);if(rc!=IFS_FS_OK)return rc;
-    ntfschar name[255];u8 length=0;
-    rc=root_name(path,name,&length);if(rc!=IFS_FS_OK)return rc;
     if((!data && count) || offset>INT64_MAX || count>INT64_MAX-offset)
         return IFS_FS_INVALID;
+    ntfschar name[255];u8 length=0;
+    ntfs_inode *parent=NULL;
+    rc=parent_inode(w,path,&parent,name,&length);
+    if(rc!=IFS_FS_OK)return rc;
+    rc=close_inode(w,parent);
+    if(rc!=IFS_FS_OK)return rc;
     ntfs_inode *file=ntfs_pathname_to_inode(w->volume,NULL,path);
-    if(!file)return errno==ENOENT?IFS_FS_NOT_FOUND:IFS_FS_IO_ERROR;
+    if(!file)return lookup_error();
     rc=IFS_FS_UNSUPPORTED;
     ntfs_attr *stream=NULL;
     if(file->mft_no<24u ||

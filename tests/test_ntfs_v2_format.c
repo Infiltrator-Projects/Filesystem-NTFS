@@ -594,6 +594,16 @@ static int check_writable(const char *path)
     for(size_t i=0;i<sizeof(small);++i)small[i]=(uint8_t)(i*23u+9u);
     CHECK(core->create(mounted,"/RESIDENT.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
     CHECK(core->write(mounted,"/RESIDENT.BIN",0,small,sizeof(small))==IFS_FS_OK);
+    /* Exercise the provider's native directory indices and nested writes;
+     * invalid components must not turn into host paths or metadata writes. */
+    CHECK(core->create(mounted,"/V2-DIR",IFS_FS_ENTRY_DIRECTORY)==IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-DIR/SUB",IFS_FS_ENTRY_DIRECTORY)==IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-DIR/SUB/DATA.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    CHECK(core->write(mounted,"/V2-DIR/SUB/DATA.BIN",0,small,sizeof(small))==IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-DIR/../ESCAPE",IFS_FS_ENTRY_FILE)!=IFS_FS_OK);
+    CHECK(core->create(mounted,"/V2-DIR//ESCAPE",IFS_FS_ENTRY_FILE)!=IFS_FS_OK);
+    CHECK(core->create(mounted,"/MISSING/DATA.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_NOT_FOUND);
+    CHECK(core->write(mounted,"/V2-DIR/SUB",0,small,sizeof(small))!=IFS_FS_OK);
     uint8_t payload[65536],actual[65536];
     for(unsigned chunk=0;chunk<32u;++chunk) {
         for(size_t i=0;i<sizeof(payload);++i)
@@ -620,6 +630,16 @@ static int check_writable(const char *path)
     CHECK(defrag->map(mounted,"/V2-A.BIN",0,ranges,8,&mapped)==IFS_FS_OK && mapped);
     CHECK(core->read(mounted,"/RESIDENT.BIN",0,actual,sizeof(small))==IFS_FS_OK);
     CHECK(!memcmp(small,actual,sizeof(small)));
+    char nested_name[256];
+    IfsFsEntryV2 nested={.structure_bytes=sizeof(nested),.name=nested_name,
+                         .name_capacity=sizeof(nested_name)};
+    CHECK(core->stat(mounted,"/V2-DIR/SUB",&nested)==IFS_FS_OK &&
+          nested.type==IFS_FS_ENTRY_DIRECTORY);
+    CHECK(core->stat(mounted,"/V2-DIR/SUB/DATA.BIN",&nested)==IFS_FS_OK &&
+          nested.type==IFS_FS_ENTRY_FILE && nested.size_bytes==sizeof(small));
+    CHECK(core->read(mounted,"/V2-DIR/SUB/DATA.BIN",0,actual,sizeof(small))==IFS_FS_OK);
+    CHECK(!memcmp(small,actual,sizeof(small)));
+    CHECK(core->stat(mounted,"/ESCAPE",&nested)==IFS_FS_NOT_FOUND);
     uint64_t covered=0u;
     for(uint64_t page=0u;page<=sizeof(small);++page) {
         mapped=99u;
