@@ -29,8 +29,10 @@ The target installation is `/System/Filesystems/NTFS.so` and `/System/Resources/
 - [Provider implementation](module/ntfs_v2_probe.c)
 - [Native design or source provenance](native/filesystems/ntfs/DESIGN.md)
 - [Migration and source history](MIGRATION_STATUS.md)
-- [Original-format reference source](docs/NTFS.pages) and [PDF](docs/NTFS.pdf)
+- [Original-format reference source](docs/NTFS.pdfstreams) and [PDF](docs/NTFS.pdf)
 - [Project philosophy](docs/PHILOSOPHY.md)
 - [Common ABI](https://github.com/Infiltrator-Projects/Libraries)
 
 The original-format reference and historical migration notes describe different evidence from the current production provider. When descriptions disagree, the current exported descriptor, implementation, executable tests and exact-revision release evidence take precedence.
+
+The [engineering reference](docs/NTFS-TECHNICAL-REFERENCE.md) adds field-level original-format guidance. The earlier manual is retained as a historical appendix in the PDF.
