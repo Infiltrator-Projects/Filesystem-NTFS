@@ -675,7 +675,26 @@ static int check_writable(const char *path)
                           payload,sizeof(payload))==IFS_FS_OK);
     }
     CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
+    CHECK(core->mount(&host,&mounted,&info)==IFS_FS_OK);
+    const unsigned before_plan=image.writes;
+    void *plan=NULL,*second=NULL;
+    CHECK(defrag->plan && defrag->release_plan && !defrag->execute && !defrag->recover);
+    CHECK(defrag->plan(mounted,"/missing",0u,&plan)==IFS_FS_NOT_FOUND && !plan);
+    CHECK(defrag->plan(mounted,"/",1u,&plan)==IFS_FS_INVALID && !plan);
+    CHECK(defrag->plan(mounted,"/",0u,&plan)==IFS_FS_OK && plan);
+    CHECK(defrag->plan(mounted,"/",10u,&second)==IFS_FS_BUSY && !second);
+    CHECK(core->write(mounted,"/V2-A.BIN",0u,payload,1u)==IFS_FS_BUSY);
+    CHECK(core->remove(mounted,"/V2-B.BIN")==IFS_FS_BUSY);
+    defrag->release_plan(mounted,plan);
+    CHECK(defrag->plan(mounted,"/V2-A.BIN",10u,&second)==IFS_FS_OK && second && second!=plan);
+    defrag->release_plan(mounted,plan);
+    CHECK(defrag->plan(mounted,"/",0u,&plan)==IFS_FS_BUSY && !plan);
+    defrag->release_plan(mounted,second);
+    CHECK(defrag->plan(mounted,"/",10u,&plan)==IFS_FS_OK && plan);
+    CHECK(image.writes==before_plan);
+    CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
     CHECK(core->mount(&reader,&mounted,&info)==IFS_FS_OK);
+    CHECK(defrag->plan(mounted,"/",0u,&second)==IFS_FS_ACCESS && !second);
     for(unsigned chunk=0;chunk<32u;++chunk) {
         for(size_t i=0;i<sizeof(payload);++i)payload[i]=(uint8_t)(i*17u+chunk);
         CHECK(core->read(mounted,"/V2-A.BIN",(uint64_t)chunk*sizeof(payload),

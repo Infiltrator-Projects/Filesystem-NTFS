@@ -1024,3 +1024,64 @@ int ntfs_ro_read_v2(NtfsReadOnlyV2 *v,const char *path,
     drop(v,record);
     return rc;
 }
+
+/* Hosted native planner uses the MFT's own in-use bitmap, not guessed
+ * record positions or file-name heuristics. Borrowed fixed records are
+ * USA-validated and released immediately after each private callback. */
+int ntfs_ro_visit_records_v2(NtfsReadOnlyV2 *v,
+    int (*visit)(void *,uint64_t,const uint8_t *,uint32_t),void *context)
+{
+    if(!v || !visit)return IFS_FS_INVALID;
+    if(!v->geometry.record_bytes || v->mft_length%v->geometry.record_bytes)
+        return IFS_FS_CORRUPT;
+    const uint64_t records=v->mft_length/v->geometry.record_bytes;
+    const uint64_t need=records/8u+(records%8u!=0u);
+    const uint8_t *attr=NULL;uint32_t bytes_count=0u;uint64_t length=0u;
+    int rc=attribute(v->mft,v->geometry.record_bytes,0xb0u,NULL,&attr,&bytes_count);
+    if(rc==IFS_FS_OK)rc=stream_size(attr,bytes_count,&length);
+    if(rc!=IFS_FS_OK)return rc;
+    if(length<need)return IFS_FS_CORRUPT;
+    uint8_t bits[4096];
+    for(uint64_t offset=0u;offset<need;) {
+        uint32_t n=need-offset>sizeof(bits)?sizeof(bits):(uint32_t)(need-offset);
+        rc=stream_read(v,attr,bytes_count,offset,bits,n);
+        if(rc!=IFS_FS_OK)return rc;
+        for(uint32_t i=0u;i<n;++i)for(unsigned j=0u;j<8u;++j) {
+            uint64_t record=(offset+i)*8u+j;
+            if(record>=records || !(bits[i]&(1u<<j)))continue;
+            if(v->host.cancelled && v->host.cancelled(v->host.context))
+                return IFS_FS_BUSY;
+            uint8_t *fixed=NULL;
+            rc=record_load(v,record,&fixed);
+            /* Reserved system slots may be marked allocated without an
+             * active record. A user bitmap/record disagreement is fatal. */
+            if(rc==IFS_FS_NOT_FOUND && record<24u)continue;
+            if(rc!=IFS_FS_OK)return rc;
+            rc=visit(context,record,fixed,v->geometry.record_bytes);
+            drop(v,fixed);
+            if(rc!=IFS_FS_OK)return rc;
+        }
+        offset+=n;
+    }
+    return IFS_FS_OK;
+}
+int ntfs_ro_relocation_reference_v2(NtfsReadOnlyV2 *v,const char *path,uint64_t *record)
+{
+    if(!v || !path || !record)return IFS_FS_INVALID;
+    uint64_t reference=0u;char name[768];size_t length=0u;
+    int rc=resolve(v,path,&reference,name,&length);
+    if(rc!=IFS_FS_OK)return rc;
+    uint8_t *fixed=NULL;
+    rc=record_load(v,reference,&fixed);
+    if(rc!=IFS_FS_OK)return rc;
+    const uint64_t number=reference&UINT64_C(0x0000ffffffffffff);
+    if(number<24u || (U16(fixed+22u)&2u))rc=IFS_FS_UNSUPPORTED;
+    else {
+        const uint8_t *reparse=NULL;uint32_t bytes_count=0u;
+        rc=attribute(fixed,v->geometry.record_bytes,NTFS_ATTR_REPARSE,
+                     NULL,&reparse,&bytes_count);
+        if(rc==IFS_FS_NOT_FOUND){*record=number;rc=IFS_FS_OK;}
+        else if(rc==IFS_FS_OK)rc=IFS_FS_UNSUPPORTED;
+    }
+    drop(v,fixed);return rc;
+}

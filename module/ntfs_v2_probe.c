@@ -32,6 +32,16 @@ static int leave_operation(int rc)
  * not a copied device path. Only a completely qualified, clean volume may
  * provide its actual total/free cluster accounting. */
 typedef struct {
+    uint64_t record,first,clusters,reserve;
+    uint32_t attribute_offset,attribute_type;
+    int relocate;
+} NtfsV2Placement;
+typedef struct {
+    NtfsV2Placement *items;
+    size_t count,capacity;
+    uint32_t policy;
+} NtfsV2Plan;
+typedef struct {
     IfsFsHostRuntimeV2 host, reader_host;
     IfsNtfsWriter *writer;
     int fault;
@@ -39,12 +49,14 @@ typedef struct {
     NtfsLayout layout;
     NtfsReadOnlyV2 *reader;
     uint64_t free_clusters;
+    NtfsV2Plan *plan;
+    uintptr_t plan_token;
 } MountedNtfs;
 /* Non-recycled tokens prevent stale pointers from being reused by subsequent
  * mounts. The provider enforces nonblocking operation exclusion. */
 #define NTFS_V2_MAX_MOUNTS 32u
 static struct { uintptr_t token; MountedNtfs *volume; } mounted_sessions[NTFS_V2_MAX_MOUNTS];
-static uintptr_t next_mount_token;
+static uintptr_t next_mount_token,next_plan_token;
 static MountedNtfs *find_volume(void *handle)
 {
     const uintptr_t token=(uintptr_t)handle;
@@ -136,6 +148,7 @@ static int ensure_writer(MountedNtfs *v)
     if(!v)return IFS_FS_INVALID;
     if(v->host.capabilities&IFS_FS_HOST_READ_ONLY)return IFS_FS_ACCESS;
     if(v->fault)return IFS_FS_IO_ERROR;
+    if(v->plan)return IFS_FS_BUSY;
     if(v->writer)return IFS_FS_OK;
     int rc=ifs_ntfs_writer_open(&v->host,&v->writer);
     if(rc==IFS_FS_OK)close_snapshot(v);
@@ -182,6 +195,12 @@ static int native_mount(const IfsFsHostRuntimeV2 *host, void **output, IfsFsVolu
     if (!enter_operation()) return IFS_FS_BUSY;
     return leave_operation(native_mount_impl(host,output,info));
 }
+static void free_plan(MountedNtfs *v)
+{
+    if(!v || !v->plan)return;
+    if(v->plan->items)v->host.release(v->host.context,v->plan->items);
+    v->host.release(v->host.context,v->plan);v->plan=NULL;v->plan_token=0u;
+}
 static int native_unmount_impl(void *handle)
 {
     MountedNtfs *volume=find_volume(handle);
@@ -199,6 +218,7 @@ static int native_unmount_impl(void *handle)
         const int closed=ifs_ntfs_writer_close(volume->writer,!volume->fault);
         if(closed!=IFS_FS_OK)rc=closed;
     }
+    free_plan(volume);
     close_snapshot(volume);host.release(host.context,volume);return rc;
 }
 static int native_unmount(void *handle)
@@ -223,10 +243,222 @@ static int map_file(void *handle,const char *path,uint64_t first,IfsFsExtentV2 *
     return leave_operation(map_file_impl(handle,path,first,out,capacity,written));
 }
 
+
+/* Native relocation placement. All occupied runs are reconciled against
+ * $Bitmap before any destination is accepted; all destination/growth
+ * reservations are private and do not touch the medium. This bounded
+ * copy-before-switch plan excludes attribute-list extensions, reparse,
+ * sparse, encrypted and compressed user streams. */
+typedef struct {
+    MountedNtfs *v;
+    NtfsV2Plan *plan;
+    uint8_t *reserved,*claimed;
+    uint64_t selected;
+    int selected_seen;
+} NtfsV2Planner;
+static int bitmap_get(const uint8_t *bits,uint64_t n)
+{return (bits[n/8u]>>(n%8u))&1u;}
+static void bitmap_mark(uint8_t *bits,uint64_t n)
+{bits[n/8u]|=(uint8_t)(1u<<(n%8u));}
+static int planner_cancelled(const NtfsV2Planner *p)
+{return p->v->host.cancelled && p->v->host.cancelled(p->v->host.context);}
+static int planner_free(const NtfsV2Planner *p,uint64_t first,uint64_t count)
+{
+    const uint64_t total=p->v->media.total_clusters;
+    if(first>total || count>total-first)return 0;
+    for(uint64_t i=0;i<count;++i)if(bitmap_get(p->reserved,first+i))return 0;
+    return 1;
+}
+static int planner_run(const NtfsV2Planner *p,uint64_t count,uint64_t *first)
+{
+    uint64_t start=0u,run=0u;
+    for(uint64_t at=0u;at<p->v->media.total_clusters;++at) {
+        if(!(at%4096u) && planner_cancelled(p))return IFS_FS_BUSY;
+        if(bitmap_get(p->reserved,at)){run=0u;continue;}
+        if(!run)start=at;
+        if(++run==count){*first=start;return IFS_FS_OK;}
+    }
+    return IFS_FS_NO_SPACE;
+}
+static int planner_append(NtfsV2Planner *p,NtfsV2Placement entry)
+{
+    NtfsV2Plan *plan=p->plan;
+    if(plan->count==plan->capacity) {
+        size_t next=plan->capacity?plan->capacity*2u:32u;
+        if(next<=plan->capacity || next>SIZE_MAX/sizeof(*plan->items))return IFS_FS_NO_MEMORY;
+        NtfsV2Placement *items=p->v->host.allocate(p->v->host.context,next*sizeof(*items));
+        if(!items)return IFS_FS_NO_MEMORY;
+        if(plan->count)memcpy(items,plan->items,plan->count*sizeof(*items));
+        if(plan->items)p->v->host.release(p->v->host.context,plan->items);
+        plan->items=items;plan->capacity=next;
+    }
+    plan->items[plan->count++]=entry;return IFS_FS_OK;
+}
+static int planner_record(void *context,uint64_t record,const uint8_t *fixed,uint32_t bytes)
+{
+    NtfsV2Planner *p=context;MountedNtfs *v=p->v;
+    if(planner_cancelled(p))return IFS_FS_BUSY;
+    /* Strict framing is checked before the shared native attribute decoder:
+     * a truncated attribute chain must not silently become an empty file. */
+    uint32_t at=ntfs_u16(fixed,20u),used=ntfs_u32(fixed,24u);
+    if(at<48u || (at&7u) || used>bytes || at>=used)return IFS_FS_CORRUPT;
+    int terminated=0,restricted=0;
+    for(uint32_t pos=at;pos<=used-4u;) {
+        uint32_t type=ntfs_u32(fixed,pos);
+        if(type==UINT32_MAX){terminated=1;break;}
+        if(used-pos<24u)return IFS_FS_CORRUPT;
+        uint32_t n=ntfs_u32(fixed,pos+4u);
+        if(n<24u || (n&7u) || n>used-pos || fixed[pos+8u]>1u)
+            return IFS_FS_CORRUPT;
+        if(type==NTFS_ATTR_ATTRIBUTE_LIST || type==0xc0u)restricted=1;
+        pos+=n;
+    }
+    if(!terminated)return IFS_FS_CORRUPT;
+    const uint64_t base=ntfs_u64(fixed,32u)&NTFS_FILE_REFERENCE_MASK;
+    const int selected=record>=NTFS_FIRST_USER_RECORD &&
+        (!p->selected || record==p->selected || base==p->selected);
+    if(selected && (restricted || base))return IFS_FS_UNSUPPORTED;
+    if(record==p->selected)p->selected_seen=1;
+    const int directory=(ntfs_u16(fixed,22u)&NTFS_RECORD_DIRECTORY)!=0u;
+    NtfsAttributeVec attrs={0};char *error=NULL;
+    int rc=ntfs_parse_attributes(fixed,bytes,&attrs,&error)==0?IFS_FS_OK:IFS_FS_CORRUPT;
+    free(error);error=NULL;
+    if(rc!=IFS_FS_OK)return rc;
+    for(size_t i=0u;i<attrs.count;++i) {
+        const NtfsAttribute *a=&attrs.items[i];
+        if(!a->nonresident)continue;
+        uint64_t count=0u,first=0u,end=0u;
+        int packed=1,sparse=0;
+        for(size_t j=0u;j<a->runs.count;++j) {
+            const NtfsRun *run=&a->runs.items[j];
+            if(!run->length || run->length>UINT64_MAX-count){rc=IFS_FS_CORRUPT;break;}
+            count+=run->length;
+            if(run->sparse){sparse=1;packed=0;continue;}
+            if(run->lcn>=v->media.total_clusters ||
+               run->length>v->media.total_clusters-run->lcn){rc=IFS_FS_CORRUPT;break;}
+            if(!j)first=run->lcn;
+            else if(end!=run->lcn)packed=0;
+            end=run->lcn+run->length;
+            for(uint64_t k=0u;k<run->length;++k) {
+                uint64_t cluster=run->lcn+k;
+                if(!(k%4096u) && planner_cancelled(p)){rc=IFS_FS_BUSY;break;}
+                if(!ntfs_bitmap_bit(&v->layout,cluster) || bitmap_get(p->claimed,cluster)) {
+                    rc=IFS_FS_CORRUPT;break;
+                }
+                bitmap_mark(p->claimed,cluster);
+            }
+            if(rc!=IFS_FS_OK)break;
+        }
+        if(rc!=IFS_FS_OK)break;
+        if(a->highest_vcn<a->lowest_vcn ||
+           a->highest_vcn-a->lowest_vcn==UINT64_MAX ||
+           count!=a->highest_vcn-a->lowest_vcn+1u) {rc=IFS_FS_CORRUPT;break;}
+        if(!selected || (a->type!=NTFS_ATTR_DATA && a->type!=NTFS_ATTR_INDEX_ALLOCATION))
+            continue;
+        if(!a->data_size)continue;
+        if(a->lowest_vcn || sparse ||
+           a->flags&(NTFS_ATTR_COMPRESSED|NTFS_ATTR_ENCRYPTED|NTFS_ATTR_SPARSE) ||
+           a->initialized_size>a->data_size ||
+           count>UINT64_MAX/v->media.cluster_size ||
+           a->allocated_size!=count*v->media.cluster_size ||
+           a->data_size>a->allocated_size || a->run_offset>=a->length ||
+           (directory && a->type!=NTFS_ATTR_INDEX_ALLOCATION)) {
+            rc=IFS_FS_UNSUPPORTED;break;
+        }
+        /* Growth reserve applies to ordinary nonresident file data;
+         * directory index allocation is compacted without a data gap. */
+        uint64_t reserve=p->plan->policy && !directory?
+            count/10u+(count%10u!=0u):0u;
+        if(packed && reserve && !planner_free(p,end,reserve))packed=0;
+        uint64_t destination=first;
+        if(!packed) {
+            if(reserve>UINT64_MAX-count){rc=IFS_FS_NO_SPACE;break;}
+            rc=planner_run(p,count+reserve,&destination);
+            if(rc!=IFS_FS_OK)break;
+            uint8_t encoded[18];size_t n=0u;
+            size_t cap=a->length-a->run_offset;
+            if(cap>sizeof(encoded))cap=sizeof(encoded);
+            if(ntfs_encode_single_run(destination,count,encoded,cap,&n,&error)) {
+                free(error);error=NULL;rc=IFS_FS_UNSUPPORTED;break;
+            }
+            for(uint64_t j=0u;j<count+reserve;++j)bitmap_mark(p->reserved,destination+j);
+        } else {
+            for(uint64_t j=0u;j<reserve;++j)bitmap_mark(p->reserved,end+j);
+        }
+        rc=planner_append(p,(NtfsV2Placement){record,destination,count,reserve,
+            a->offset,a->type,!packed});
+        if(rc!=IFS_FS_OK)break;
+    }
+    ntfs_attributes_free(&attrs);return rc;
+}
+static int relocation_plan(void *handle,const char *path,uint32_t policy,void **out)
+{
+    if(!out)return IFS_FS_INVALID;
+    *out=NULL;
+    if(!path || (policy!=0u && policy!=10u))return IFS_FS_INVALID;
+    if(!enter_operation())return IFS_FS_BUSY;
+    MountedNtfs *v=find_volume(handle);
+    if(!v)return leave_operation(IFS_FS_INVALID);
+    if(v->host.capabilities&IFS_FS_HOST_READ_ONLY)return leave_operation(IFS_FS_ACCESS);
+    /* Planning itself must be write-free. A prior ordinary namespace write
+     * session must first be independently committed by its caller. */
+    if(v->writer || v->plan || next_plan_token==UINTPTR_MAX)return leave_operation(IFS_FS_BUSY);
+    int rc=ensure_reader(v);
+    if(rc!=IFS_FS_OK)return leave_operation(rc);
+    uint64_t selected=0u;
+    if(strcmp(path,"/")) {
+        rc=ntfs_ro_relocation_reference_v2(v->reader,path,&selected);
+        if(rc!=IFS_FS_OK)return leave_operation(rc);
+    }
+    /* Never plan against a live hibernation image. A valid clean volume
+     * flag alone does not establish that Windows has released ownership. */
+    char name[768];IfsFsEntryV2 entry={.structure_bytes=sizeof(entry),.name=name,
+        .name_capacity=sizeof(name)};
+    rc=ntfs_ro_stat_v2(v->reader,"/hiberfil.sys",&entry);
+    if(rc==IFS_FS_OK && entry.size_bytes) {
+        uint8_t prefix[4]={0};uint32_t n=entry.size_bytes<4u?(uint32_t)entry.size_bytes:4u;
+        rc=ntfs_ro_read_v2(v->reader,"/hiberfil.sys",0u,prefix,n);
+        if(rc!=IFS_FS_OK)return leave_operation(rc);
+        if(prefix[0]||prefix[1]||prefix[2]||prefix[3])return leave_operation(IFS_FS_ACCESS);
+    } else if(rc!=IFS_FS_OK && rc!=IFS_FS_NOT_FOUND)return leave_operation(rc);
+    const uint64_t total=v->media.total_clusters;
+    const uint64_t bytes=total/8u+(total%8u!=0u);
+    if(!bytes || bytes>SIZE_MAX || bytes>v->layout.bitmap_bytes)
+        return leave_operation(IFS_FS_CORRUPT);
+    NtfsV2Plan *plan=v->host.allocate(v->host.context,sizeof(*plan));
+    uint8_t *reserved=v->host.allocate(v->host.context,(size_t)bytes);
+    uint8_t *claimed=v->host.allocate(v->host.context,(size_t)bytes);
+    if(plan){memset(plan,0,sizeof(*plan));plan->policy=policy;}
+    if(!plan || !reserved || !claimed)rc=IFS_FS_NO_MEMORY;
+    else {
+        memcpy(reserved,v->layout.bitmap,(size_t)bytes);
+        memset(claimed,0,(size_t)bytes);
+        NtfsV2Planner planner={v,plan,reserved,claimed,selected,0};
+        rc=ntfs_ro_visit_records_v2(v->reader,planner_record,&planner);
+        if(rc==IFS_FS_OK && selected && !planner.selected_seen)rc=IFS_FS_CORRUPT;
+    }
+    if(reserved)v->host.release(v->host.context,reserved);
+    if(claimed)v->host.release(v->host.context,claimed);
+    if(rc==IFS_FS_OK) {
+        v->plan=plan;v->plan_token=++next_plan_token;*out=(void*)v->plan_token;
+    } else if(plan) {
+        if(plan->items)v->host.release(v->host.context,plan->items);
+        v->host.release(v->host.context,plan);
+    }
+    return leave_operation(rc);
+}
+static void relocation_release(void *handle,void *plan)
+{
+    if(!enter_operation())return;
+    MountedNtfs *v=find_volume(handle);
+    if(v && v->plan && v->plan_token==(uintptr_t)plan)free_plan(v);
+    (void)leave_operation(IFS_FS_OK);
+}
+
 static const IfsFsDefragOpsV2 defrag_ops = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsDefragOpsV2),
-        IFS_FS_GROUP_DEFRAG, 0u, IFS_FS_DEFRAG_MAP },
-    .map = map_file
+        IFS_FS_GROUP_DEFRAG, 0u, IFS_FS_DEFRAG_MAP|IFS_FS_DEFRAG_PLAN },
+    .map = map_file,.plan=relocation_plan,.release_plan=relocation_release
 };
 
 /* Whole-volume allocation is sourced from NTFS's own validated $Bitmap,

@@ -200,7 +200,7 @@ int main(int argc,char **argv)
         const IfsFsDefragOpsV2 *defrag=(const void *)
             ifs_fs_group_v2(api,IFS_FS_GROUP_DEFRAG);
         CHECK(defrag && defrag->map &&
-              defrag->header.capabilities==IFS_FS_DEFRAG_MAP);
+              defrag->header.capabilities==(IFS_FS_DEFRAG_MAP|IFS_FS_DEFRAG_PLAN));
         IfsFsExtentV2 extents[8]={0};
         uint32_t mapped=0u;
         CHECK(defrag->map(mounted,"/kernel.img",0u,extents,8u,&mapped)
