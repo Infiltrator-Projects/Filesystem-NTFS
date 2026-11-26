@@ -374,7 +374,7 @@ static int check_map(const char *path, const char *payload)
     const IfsFsCoreOpsV2 *core = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_CORE);
     const IfsFsDefragOpsV2 *ops = (const void *)ifs_fs_group_v2(api, IFS_FS_GROUP_DEFRAG);
     CHECK(image.fd >= 0 && source >= 0);
-    CHECK(core && ops && ops->header.capabilities == IFS_FS_DEFRAG_MAP);
+    CHECK(core && ops && ops->header.capabilities == (IFS_FS_DEFRAG_MAP | IFS_FS_DEFRAG_PLAN));
     const IfsFsHostRuntimeV2 host = {
         .abi_version = IFS_FS_HOST_ABI_V2, .structure_bytes = sizeof(host),
         .capabilities = IFS_FS_HOST_READ_ONLY, .volume_bytes = IMAGE_BYTES,
