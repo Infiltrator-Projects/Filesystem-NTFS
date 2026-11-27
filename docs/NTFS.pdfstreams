@@ -1,624 +1,306 @@
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (History, revision and design) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(NTFS arrived with Windows NT 3.1 in 1993. NTFS 3.0 and 3.1 were introduced) Tj
-T* (with Windows 2000 and Windows XP respectively; operating-system release) Tj
-T* (numbers are not filesystem revision numbers. This reference uses the Linux) Tj
-T* (v6.12 ntfs3 format definitions as implementation evidence and Microsoft) Tj
-T* (documentation for filesystem semantics. An NTFS volume is an attribute-based) Tj
-T* (record store: the Master File Table maps record identities, and attributes) Tj
-T* (may store bytes within records or in separate cluster runs. Directory) Tj
-T* (indexes, metadata allocation and transaction recovery must be interpreted) Tj
-T* (together. A reader that extracts the unnamed data stream is not necessarily) Tj
-T* (a full NTFS implementation.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 1 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 18 Tf 43 736 Td (Contents) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 711 Td (1. History, revision and design) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 695 Td (2. Boot sector and address units) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 679 Td (3. Master File Table bootstrap) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 663 Td (4. Multi-sector record protection) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 647 Td (5. FILE record fields and identity) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 631 Td (6. Typed attribute records) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 615 Td (7. Nonresident attribute headers) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 599 Td (8. Mapping pairs: signed delta example) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 583 Td (9. Attribute lists and extension records) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 567 Td (10. Names, links and directory indexes) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 551 Td (11. Index root and INDX buffers) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 535 Td (12. Allocation and special data forms) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 519 Td (13. Security, reparse and stream semantics) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 503 Td (14. Transaction recovery and durability) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 487 Td (15. Implementation and qualification boundary) Tj ET
+0.08 0.14 0.20 rg BT /F1 11 Tf 43 471 Td (16. Formatting and validation) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 1) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Boot sector and address units) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(The boot record contains OEM identifier NTFS followed by four spaces at) Tj
-T* (offset 3, little-endian sector bytes at 11, sectors-per-cluster encoding at) Tj
-T* (13, media byte 21, track/head geometry 24/26, hidden-sector field 28. Total) Tj
-T* (volume sectors is 64-bit at 40, MFT starting LCN at 48, MFT mirror LCN at) Tj
-T* (56. Signed record-size and index-size encodings at 64 and 68, serial 72,) Tj
-T* (checksum field 80, boot signature 55 AA at 510. For ordinary positive) Tj
-T* (sectors-per-cluster values, cluster bytes C equal sector bytes times sectors) Tj
-T* (per cluster. Large-cluster encodings need native validation. A positive) Tj
-T* (signed record-size value is a cluster count; a negative value -k specifies) Tj
-T* (2^k bytes. For C=4096 and record-size -10, a FILE record is 1024 bytes.) Tj
-T* (Validate all multiplications and the backup boot sector against the actual) Tj
-T* (device.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 2 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (1. History, revision and design) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (NTFS arrived with Windows NT 3.1 in 1993. NTFS 3.0 and 3.1 were introduced with) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (Windows 2000 and Windows XP respectively; operating-system release numbers are not) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (filesystem revision numbers. This reference uses the Linux v6.12 ntfs3 format) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (definitions as implementation evidence and Microsoft documentation for filesystem) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (semantics. An NTFS volume is an attribute-based record store: the Master File Table) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (maps record identities, and attributes may store bytes within records or in) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (separate cluster runs. Directory indexes, metadata allocation and transaction) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (recovery must be interpreted together. A reader that extracts the unnamed data) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (stream is not necessarily a full NTFS implementation.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 570 Td (NTFS was designed for a security-oriented multiuser operating system, with a cost) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 556 Td (in metadata complexity relative to FAT. Later Windows features such as) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 542 Td (deduplication and reparse services may depend on additional OS semantics.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 2) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Master File Table bootstrap) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(The boot record locates the beginning of $MFT, not every MFT record. Read) Tj
-T* (its initial FILE record, apply update-sequence protection, then resolve the) Tj
-T* (unnamed nonresident $DATA mapping of record zero. For record number r and) Tj
-T* (record size R, the byte offset in the MFT stream is r*R, which must be) Tj
-T* (translated through the MFT's own runlist. The mirror is limited to initial) Tj
-T* (critical records, not a full backup of all files. Reserved records include 0) Tj
-T* ($MFT, 1 $MFTMirr, 2 $LogFile, 3 $Volume, 4 $AttrDef, 5 root, 6 $Bitmap, 7) Tj
-T* ($Boot, 8 $BadClus, 9 $Secure, 10 $UpCase and 11 $Extend for the modern) Tj
-T* (layout. Use validated record identities and revision-specific rules when) Tj
-T* (interpreting the reserved namespace.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 3 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (2. Boot sector and address units) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (The boot record contains OEM identifier NTFS followed by four spaces at offset 3,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (little-endian sector bytes at 11, sectors-per-cluster encoding at 13, media byte) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (21, track/head geometry 24/26, hidden-sector field 28. Total volume sectors is) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (64-bit at 40, MFT starting LCN at 48, MFT mirror LCN at 56. Signed record-size and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (index-size encodings at 64 and 68, serial 72, checksum field 80, boot signature 55) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (AA at 510. For ordinary positive sectors-per-cluster values, cluster bytes C equal) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (sector bytes times sectors per cluster. Large-cluster encodings need native) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (validation. A positive signed record-size value is a cluster count; a negative) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (value -k specifies 2^k bytes. For C=4096 and record-size -10, a FILE record is 1024) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (bytes. Validate all multiplications and the backup boot sector against the actual) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (device.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 3) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Multi-sector record protection) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(FILE, INDX and log record families use a common protected header: four-byte) Tj
-T* (signature at 0, 16-bit update-sequence array offset at 4, array word count) Tj
-T* (at 6, 64-bit log sequence at 8. The first array word is the update-sequence) Tj
-T* (marker; subsequent words preserve original trailing words from protected) Tj
-T* (sectors. The pinned ntfs3 implementation uses 512-byte protection intervals,) Tj
-T* (including on larger logical-sector media. For a 1024-byte FILE record, the) Tj
-T* (ordinary count is 3; verify marker at bytes 510 and 1022, then replace those) Tj
-T* (words with array entries 1 and 2 in the working copy. Validate alignment,) Tj
-T* (bounds, count and every marker before accepting metadata. A failed fixup is) Tj
-T* (corruption evidence, not a request to repair the disk. This mechanism) Tj
-T* (detects certain torn writes but is not a general data checksum.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 4 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (3. Master File Table bootstrap) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (The boot record locates the beginning of $MFT, not every MFT record. Read its) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (initial FILE record, apply update-sequence protection, then resolve the unnamed) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (nonresident $DATA mapping of record zero. For record number r and record size R,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (the byte offset in the MFT stream is r*R, which must be translated through the) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (MFT's own runlist. The mirror is limited to initial critical records, not a full) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (backup of all files. Reserved records include 0 $MFT, 1 $MFTMirr, 2 $LogFile, 3) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td ($Volume, 4 $AttrDef, 5 root, 6 $Bitmap, 7 $Boot, 8 $BadClus, 9 $Secure, 10 $UpCase) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (and 11 $Extend for the modern layout. Use validated record identities and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (revision-specific rules when interpreting the reserved namespace.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 4) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (FILE record fields and identity) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(After the common header, sequence number at 16, link count 18, first) Tj
-T* (attribute offset 20, flags 22, bytes in use 24, allocated record bytes 28,) Tj
-T* (base-record reference 32, next attribute ID 40, reserved field 42 and modern) Tj
-T* (record number field 44. Flags bit 0 means in use, bit 1 directory. An) Tj
-T* (eight-byte reference has low 32 bits of record number at 0, next 16 bits at) Tj
-T* (4 and sequence at 6. For NTFS 3.x a nonzero base reference identifies an) Tj
-T* (extension record; it is not the file's containing directory. Compare) Tj
-T* (references against current sequence and allocation state. A stale reference) Tj
-T* (to a reused record is not valid ownership. Enforce attribute offset, record) Tj
-T* (used size, and extension-to-base coherence.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 5 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (4. Multi-sector record protection) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (FILE, INDX and log record families use a common protected header: four-byte) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (signature at 0, 16-bit update-sequence array offset at 4, array word count at 6,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (64-bit log sequence at 8. The first array word is the update-sequence marker;) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (subsequent words preserve original trailing words from protected sectors. The) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (pinned ntfs3 implementation uses 512-byte protection intervals, including on larger) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (logical-sector media. For a 1024-byte FILE record, the ordinary count is 3; verify) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (marker at bytes 510 and 1022, then replace those words with array entries 1 and 2) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (in the working copy. Validate alignment, bounds, count and every marker before) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (accepting metadata. A failed fixup is corruption evidence, not a request to repair) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (the disk. This mechanism detects certain torn writes but is not a general data) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (checksum.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 5) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Typed attribute records) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(Each attribute begins with 32-bit type 0, total record length 4,) Tj
-T* (resident/nonresident byte 8, name length in UTF-16 units 9, name offset 10,) Tj
-T* (flags 12 and record-local ID 14. Types include 0x10 standard information,) Tj
-T* (0x20 attribute list, 0x30 file name, 0x40 object ID, 0x50 security) Tj
-T* (descriptor, 0x60 volume name, 0x70 volume information, 0x80 data, 0x90 index) Tj
-T* (root, 0xA0 index allocation, 0xB0 bitmap, 0xC0 reparse point, 0xD0 EA) Tj
-T* (information and 0xE0 EA. Type 0xFFFFFFFF terminates the list. For resident) Tj
-T* (attributes value length at 16, value offset 20 and indexed flag 22; minimum) Tj
-T* (common resident header is 24 bytes. Validate name and value bounds) Tj
-T* (separately, attribute progress and eight-byte alignment. Several named DATA) Tj
-T* (streams can coexist; type alone is not stream identity.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 6 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (5. FILE record fields and identity) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (After the common header, sequence number at 16, link count 18, first attribute) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (offset 20, flags 22, bytes in use 24, allocated record bytes 28, base-record) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (reference 32, next attribute ID 40, reserved field 42 and modern record number) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (field 44. Flags bit 0 means in use, bit 1 directory. An eight-byte reference has) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (low 32 bits of record number at 0, next 16 bits at 4 and sequence at 6. For NTFS) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (3.x a nonzero base reference identifies an extension record; it is not the file's) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (containing directory. Compare references against current sequence and allocation) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (state. A stale reference to a reused record is not valid ownership. Enforce) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (attribute offset, record used size, and extension-to-base coherence.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 6) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Nonresident attribute headers) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(The nonresident header has start VCN at 16, inclusive last VCN at 24,) Tj
-T* (mapping-pairs offset 32, compression-unit exponent 34, allocated bytes 40,) Tj
-T* (logical data bytes 48 and initialized bytes 56. A further) Tj
-T* (allocated-physical-size field at 64 is present for applicable) Tj
-T* (compressed/sparse first segments. Do not require it for ordinary 64-byte) Tj
-T* (headers or extension segments. VCN denotes a virtual cluster relative to an) Tj
-T* (attribute; LCN denotes a volume cluster. Enforce supported attribute flags) Tj
-T* (and monotone VCN coverage. Size information in the first segment describes) Tj
-T* (the stream; a later segment is not a separate file. Distinguish initialized) Tj
-T* (length from EOF: bytes beyond initialized length but within EOF read as) Tj
-T* (zeros. Sparse and compressed physical occupancy must not be inferred from) Tj
-T* (logical allocation alone.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 7 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (6. Typed attribute records) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (Each attribute begins with 32-bit type 0, total record length 4,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (resident/nonresident byte 8, name length in UTF-16 units 9, name offset 10, flags) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (12 and record-local ID 14. Types include 0x10 standard information, 0x20 attribute) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (list, 0x30 file name, 0x40 object ID, 0x50 security descriptor, 0x60 volume name,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (0x70 volume information, 0x80 data, 0x90 index root, 0xA0 index allocation, 0xB0) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (bitmap, 0xC0 reparse point, 0xD0 EA information and 0xE0 EA. Type 0xFFFFFFFF) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (terminates the list. For resident attributes value length at 16, value offset 20) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (and indexed flag 22; minimum common resident header is 24 bytes. Validate name and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (value bounds separately, attribute progress and eight-byte alignment. Several named) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (DATA streams can coexist; type alone is not stream identity.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 7) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Mapping pairs: signed delta example) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(A mapping-pair header byte gives length-field width in its low nibble and) Tj
-T* (signed LCN-delta width in its high nibble. Zero terminates the list. Decode) Tj
-T* (the unsigned run length and signed little-endian delta with checked sign) Tj
-T* (extension. A zero delta-width denotes a sparse run; it does not change the) Tj
-T* (prior physical LCN. Example byte sequence in hex: 11 03 28 11 02 FB 01 04) Tj
-T* (00. Starting at VCN zero, first three clusters map to LCN 40..42; next two) Tj
-T* (to LCN 35..36 because FB represents -5; next four are sparse. With 4096-byte) Tj
-T* (clusters, logical VCN 4 maps to LCN 36 at byte 147456, whereas VCN 6 reads) Tj
-T* (as zeros. Check widths, nonzero lengths, cumulative VCN end and physical) Tj
-T* (volume boundaries. Decode each attribute segment with its native starting) Tj
-T* (delta state.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 8 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (7. Nonresident attribute headers) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (The nonresident header has start VCN at 16, inclusive last VCN at 24, mapping-pairs) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (offset 32, compression-unit exponent 34, allocated bytes 40, logical data bytes 48) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (and initialized bytes 56. A further allocated-physical-size field at 64 is present) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (for applicable compressed/sparse first segments. Do not require it for ordinary) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (64-byte headers or extension segments. VCN denotes a virtual cluster relative to an) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (attribute; LCN denotes a volume cluster. Enforce supported attribute flags and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (monotone VCN coverage. Size information in the first segment describes the stream;) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (a later segment is not a separate file. Distinguish initialized length from EOF:) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (bytes beyond initialized length but within EOF read as zeros. Sparse and compressed) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (physical occupancy must not be inferred from logical allocation alone.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 8) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Attribute lists and extension records) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(An attribute-list entry contains type 0, 16-bit entry length 4, name length) Tj
-T* (6, name offset 7, starting VCN 8, eight-byte file reference 16, attribute ID) Tj
-T* (24 and variable name at or after 26. It can refer to attributes in the base) Tj
-T* (or extension FILE records. Follow the list's own resident/nonresident) Tj
-T* (representation; match type, name, record sequence, ID and VCN coverage.) Tj
-T* (Reject cycles, duplicate or overlapping segments and inconsistent base) Tj
-T* (references. Bootstrapping a fragmented MFT may require progressive) Tj
-T* (resolution of its own attribute list rather than assuming arbitrary record) Tj
-T* (addresses can be read immediately. A partial record list is not a complete) Tj
-T* (file mapping.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 9 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (8. Mapping pairs: signed delta example) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (A mapping-pair header byte gives length-field width in its low nibble and signed) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (LCN-delta width in its high nibble. Zero terminates the list. Decode the unsigned) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (run length and signed little-endian delta with checked sign extension. A zero) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (delta-width denotes a sparse run; it does not change the prior physical LCN.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (Example byte sequence in hex: 11 03 28 11 02 FB 01 04 00. Starting at VCN zero,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (first three clusters map to LCN 40..42; next two to LCN 35..36 because FB) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (represents -5; next four are sparse. With 4096-byte clusters, logical VCN 4 maps to) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (LCN 36 at byte 147456, whereas VCN 6 reads as zeros. Check widths, nonzero lengths,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (cumulative VCN end and physical volume boundaries. Decode each attribute segment) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (with its native starting delta state.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 9) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Names, links and directory indexes) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(The FILE_NAME value begins with parent reference at 0, four 64-bit) Tj
-T* (timestamps at 8,16,24,32, allocation and data sizes at 40/48, attributes at) Tj
-T* (56, EA/reparse information at 60, name length at 64, namespace at 65 and) Tj
-T* (UTF-16LE name from 66. Namespaces are POSIX 0, Windows 1, DOS 2 and combined) Tj
-T* (Windows/DOS 3. Multiple names and links can identify the same base record.) Tj
-T* (Do not count a DOS alias as an independent file. Directory $I30 indexes use) Tj
-T* ($INDEX_ROOT, optional $INDEX_ALLOCATION and corresponding $BITMAP. Use the) Tj
-T* (volume's $UpCase table and native collation, not host locale or an assumed) Tj
-T* (Unicode case-folding algorithm.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 10 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (9. Attribute lists and extension records) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (An attribute-list entry contains type 0, 16-bit entry length 4, name length 6, name) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (offset 7, starting VCN 8, eight-byte file reference 16, attribute ID 24 and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (variable name at or after 26. It can refer to attributes in the base or extension) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (FILE records. Follow the list's own resident/nonresident representation; match) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (type, name, record sequence, ID and VCN coverage. Reject cycles, duplicate or) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (overlapping segments and inconsistent base references. Bootstrapping a fragmented) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (MFT may require progressive resolution of its own attribute list rather than) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (assuming arbitrary record addresses can be read immediately. A partial record list) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (is not a complete file mapping.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 10) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Index root and INDX buffers) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(INDEX_ROOT value fields are indexed attribute type 0, collation rule 4,) Tj
-T* (index block bytes 8, cluster/sector encoding 12 and index header at 16. An) Tj
-T* (INDX buffer has the protected common header, logical index address at 16 and) Tj
-T* (index header at 24. Index header fields are first-entry offset 0, used bytes) Tj
-T* (4, allocated bytes 8 and flags 12, relative to that header. Each index entry) Tj
-T* (has an eight-byte reference or index-specific data locator, entry bytes at) Tj
-T* (8, key bytes 10, flags 12 and reserved 14. Flag 1 denotes a child pointer in) Tj
-T* (the final eight bytes; flag 2 marks the final entry. Validate node bounds,) Tj
-T* (child addresses and index bitmap, collation order and record sequences. The) Tj
-T* (index address uses native index geometry; do not always multiply it by) Tj
-T* (cluster bytes.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 11 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (10. Names, links and directory indexes) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (The FILE_NAME value begins with parent reference at 0, four 64-bit timestamps at) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (8,16,24,32, allocation and data sizes at 40/48, attributes at 56, EA/reparse) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (information at 60, name length at 64, namespace at 65 and UTF-16LE name from 66.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (Namespaces are POSIX 0, Windows 1, DOS 2 and combined Windows/DOS 3. Multiple names) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (and links can identify the same base record. Do not count a DOS alias as an) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (independent file. Directory $I30 indexes use $INDEX_ROOT, optional) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td ($INDEX_ALLOCATION and corresponding $BITMAP. Use the volume's $UpCase table and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (native collation, not host locale or an assumed Unicode case-folding algorithm.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 11) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Allocation and special data forms) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-($Bitmap tracks volume clusters and $MFT's own bitmap tracks record) Tj
-T* (allocation. Set bits identify allocated items; bit order is) Tj
-T* (least-significant first. For cluster 33000, byte 4125 bit 0 holds its) Tj
-T* (allocation state. Resident data has no independent data cluster run;) Tj
-T* (compressed data is organized into compression units with native) Tj
-T* (encoded/sparse patterns; LZNT1 decoding is not interchangeable with WOF) Tj
-T* (compression or EFS encryption. $BadClus reserves damaged cluster ranges. MFT) Tj
-T* (reservation zones are allocator policy, not evidence that every cluster in) Tj
-T* (the zone is allocated. A physical ownership scan must include every) Tj
-T* (nonresident attribute stream and metadata file; an ordinary file-data extent) Tj
-T* (list is insufficient for full volume defragmentation.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 12 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (11. Index root and INDX buffers) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (INDEX_ROOT value fields are indexed attribute type 0, collation rule 4, index block) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (bytes 8, cluster/sector encoding 12 and index header at 16. An INDX buffer has the) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (protected common header, logical index address at 16 and index header at 24. Index) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (header fields are first-entry offset 0, used bytes 4, allocated bytes 8 and flags) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (12, relative to that header. Each index entry has an eight-byte reference or) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (index-specific data locator, entry bytes at 8, key bytes 10, flags 12 and reserved) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (14. Flag 1 denotes a child pointer in the final eight bytes; flag 2 marks the final) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (entry. Validate node bounds, child addresses and index bitmap, collation order and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (record sequences. The index address uses native index geometry; do not always) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (multiply it by cluster bytes.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 12) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Security, reparse and stream semantics) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(Modern NTFS centralizes security descriptors in $Secure, with descriptor) Tj
-T* (storage and indexes; standard-information security identifiers refer to that) Tj
-T* (metadata. Reparse attributes carry a tag and bounded data with tag-specific) Tj
-T* (semantics, including some symbolic links, mount points and WOF-backed data.) Tj
-T* (Preserve unknown reparse tags, named streams, object IDs, EA values and) Tj
-T* (access controls during operations. Distinguish a native NTFS sparse) Tj
-T* (attribute from higher-level deduplication or external backing. Windows) Tj
-T* (timestamps count 100-nanosecond intervals since 1601-01-01 UTC. Treat) Tj
-T* (duplicated FILE_NAME timestamps and sizes as index metadata, not universally) Tj
-T* (authoritative current stream state. Cross-platform conversion cannot safely) Tj
-T* (replace native security or reparse behavior with ordinary POSIX permission) Tj
-T* (bits.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 13 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (12. Allocation and special data forms) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td ($Bitmap tracks volume clusters and $MFT's own bitmap tracks record allocation. Set) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (bits identify allocated items; bit order is least-significant first. For cluster) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (33000, byte 4125 bit 0 holds its allocation state. Resident data has no independent) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (data cluster run; compressed data is organized into compression units with native) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (encoded/sparse patterns; LZNT1 decoding is not interchangeable with WOF compression) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (or EFS encryption. $BadClus reserves damaged cluster ranges. MFT reservation zones) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (are allocator policy, not evidence that every cluster in the zone is allocated. A) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (physical ownership scan must include every nonresident attribute stream and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (metadata file; an ordinary file-data extent list is insufficient for full volume) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (defragmentation.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 13) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Transaction recovery and durability) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-($LogFile uses restart pages \(RSTR\), record pages \(RCRD\), log sequence) Tj
-T* (numbers and transaction records. Recovery establishes a coherent restart) Tj
-T* (state, reconstructs committed operations and performs required redo/undo) Tj
-T* (under revision-specific log semantics. The $UsnJrnl change journal is not) Tj
-T* (the metadata transaction log and cannot substitute for replay. A) Tj
-T* (clean-looking directory or valid fixup is insufficient evidence of recovery.) Tj
-T* (The volume dirty flag and Windows hibernation or Fast Startup state require) Tj
-T* (explicit handling. A writer must preserve MFT, allocation, attribute lists,) Tj
-T* (indexes and log ordering; copy and verify relocation data before committing) Tj
-T* (new mappings, and retire original ownership only after durability is proven.) Tj
-T* (Exact native log operation codes, restart tables and replay semantics) Tj
-T* (require further source-level and crash-fixture work.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 14 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (13. Security, reparse and stream semantics) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (Modern NTFS centralizes security descriptors in $Secure, with descriptor storage) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (and indexes; standard-information security identifiers refer to that metadata.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (Reparse attributes carry a tag and bounded data with tag-specific semantics,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (including some symbolic links, mount points and WOF-backed data. Preserve unknown) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (reparse tags, named streams, object IDs, EA values and access controls during) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (operations. Distinguish a native NTFS sparse attribute from higher-level) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (deduplication or external backing. Windows timestamps count 100-nanosecond) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (intervals since 1601-01-01 UTC. Treat duplicated FILE_NAME timestamps and sizes as) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (index metadata, not universally authoritative current stream state. Cross-platform) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (conversion cannot safely replace native security or reparse behavior with ordinary) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (POSIX permission bits.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 14) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Formatting and validation) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(A formatter must publish coherent primary and backup boot geometry, MFT and) Tj
-T* (mirror, reserved system records, root index, allocation bitmaps, attribute) Tj
-T* (definitions, log initialization, uppercase mapping and security metadata.) Tj
-T* (Verify independently formatted Windows and NTFS-3G fixtures at admitted) Tj
-T* (sector and cluster sizes, including 4Kn, fragmented MFTs, multiple streams,) Tj
-T* (extension records, sparse runs, compression, hard links, non-ASCII names,) Tj
-T* (index splits, stale sequences, fixup mismatches and interrupted mutations.) Tj
-T* (Use native chkdsk and read-only reference comparisons on disposable copies;) Tj
-T* (no external production formatter or filesystem driver fallback is implied.) Tj
-T* (Sources: https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 \(ntfs.h,) Tj
-T* (run.c, fsntfs.c, record.c, index.c, fslog.c\);) Tj
-T* (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table .) Tj
-T* (Earlier documentation follows for provenance, not current Common V2) Tj
-T* (qualification.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 15 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (14. Transaction recovery and durability) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td ($LogFile uses restart pages \(RSTR\), record pages \(RCRD\), log sequence numbers and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (transaction records. Recovery establishes a coherent restart state, reconstructs) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (committed operations and performs required redo/undo under revision-specific log) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (semantics. The $UsnJrnl change journal is not the metadata transaction log and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (cannot substitute for replay. A clean-looking directory or valid fixup is) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (insufficient evidence of recovery. The volume dirty flag and Windows hibernation or) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (Fast Startup state require explicit handling. A writer must preserve MFT,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (allocation, attribute lists, indexes and log ordering; copy and verify relocation) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (data before committing new mappings, and retire original ownership only after) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (durability is proven. Exact native log operation codes, restart tables and replay) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (semantics require further source-level and crash-fixture work.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 15) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-1 1 1 rg BT /F2 11 Tf 50 807 Td (INFILTRATOR / FILESYSTEM ENGINEERING REFERENCE) Tj ET
-BT /F2 21 Tf 50 775 Td (NTFS - technical reference) Tj ET
-0.05 0.13 0.22 rg BT /F2 16 Tf 50 715 Td (Historical reference appendix) Tj ET
-BT /F1 11 Tf 15 TL 50 685 Td
-(The previous manual follows for provenance. Its dated provider and) Tj
-T* (qualification statements are historical; the new engineering chapters take) Tj
-T* (precedence for original-format interpretation.) Tj
-ET
-0.05 0.13 0.22 rg BT /F1 9 Tf 50 42 Td (Engineering chapter 16 | Original format, not provider qualification) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (15. Implementation and qualification boundary) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (At historical source revision f87572403218 the hosted provider declared read-only) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (extent mapping and native NTFS 3.1 data-volume format \(adapted NTFS-3G source) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (inside the same SO\). Its documented profile accepted 512, 1024, 2048 and 4096-byte) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (logical sectors, up to 128 UTF-16 label units, and update-sequence fixups on) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (512-byte subrecords even on genuine 4Kn media. Compressed, encrypted and reparse) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (files were outside that physical-map contract. Formatting was serialized against) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (readers; unallocated sectors were not erased. These are source-baseline facts, not) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (a claim of current qualification.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 584 Td (Common V2 is the independent provider interface:) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 570 Td (https://github.com/Infiltrator-Projects/Libraries/blob/main/docs/FILESYSTEM_COMMON_) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 556 Td (ABI_V2.md . Negotiate real operation masks and media profiles. Use bounded host) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 542 Td (I/O, exclusive unmounted ownership and durable flush for mutation; distinguish) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 528 Td (unsupported, corrupt, I/O and stale-handle results. Test Media and Defragmenter use) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 514 Td (the same engine. Hosted, freestanding, BOOT, kernel, recovery and package) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 500 Td (qualification are independent. Current capability and release status belongs to the) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 486 Td (repository README and exact-source qualification records; historical evidence is) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 472 Td (not a current status claim.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 448 Td (Historical source or test reference:) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 434 Td (https://github.com/Infiltrator-Projects/Filesystem-NTFS/actions/runs/45526878687 .) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 16) Tj ET
 
 %%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 01) Tj ET
-BT /F2 12 Tf 0.02 0.50 0.55 rg 1 0 0 1 50 694.0 Tm (OFFICIAL FORMAT / CHRONOLOGY / ENGINEERING) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 650.0 Tm (Microsoft's Windows NT filesystem, built around an attribute-based Master File Table,) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 633.0 Tm (metadata journals, allocation bitmaps and indexed directories.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 603.0 Tm (This guide documents the original format's technical architecture, history and independent) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 586.0 Tm (source references. InfiltratorOS modules and install packages are implementation) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 569.0 Tm (artefacts, not the authority for the historic on-disk definition.) Tj ET
-BT /F2 12 Tf 0.02 0.50 0.55 rg 1 0 0 1 50 539.0 Tm (CONCEPTUAL MEDIA MAP) Tj ET
-0.05 0.36 0.47 rg 50 455 238 67 re f
-BT /F2 11 Tf 1 1 1 rg 1 0 0 1 62 487.0 Tm (BOOT RECORD) Tj ET
-BT /F1 8.5 Tf 0.85 0.97 0.97 rg 1 0 0 1 62 468.0 Tm (Geometry and $MFT location) Tj ET
-0.08 0.39 0.49 rg 301 455 238 67 re f
-BT /F2 11 Tf 1 1 1 rg 1 0 0 1 313 487.0 Tm (MASTER FILE TABLE) Tj ET
-BT /F1 8.5 Tf 0.85 0.97 0.97 rg 1 0 0 1 313 468.0 Tm (File-record segments and attributes) Tj ET
-0.10 0.43 0.52 rg 50 373 238 67 re f
-BT /F2 11 Tf 1 1 1 rg 1 0 0 1 62 405.0 Tm ($BITMAP + $LOGFILE) Tj ET
-BT /F1 8.5 Tf 0.85 0.97 0.97 rg 1 0 0 1 62 386.0 Tm (Allocation and transaction log) Tj ET
-0.13 0.46 0.54 rg 301 373 238 67 re f
-BT /F2 11 Tf 1 1 1 rg 1 0 0 1 313 405.0 Tm (FILE EXTENTS) Tj ET
-BT /F1 8.5 Tf 0.85 0.97 0.97 rg 1 0 0 1 313 386.0 Tm (Runlists for nonresident data) Tj ET
-BT /F2 12 Tf 0.02 0.50 0.55 rg 1 0 0 1 50 332.0 Tm (CONTENTS) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 305.0 Tm (1. Historical chronology) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 282.0 Tm (2. Original on-disk architecture) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 259.0 Tm (3. Allocation and directories) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 236.0 Tm (4. Integrity and recovery) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 213.0 Tm (5. Design rationale and limitations) Tj ET
-BT /F1 10.4 Tf 0.07 0.16 0.23 rg 1 0 0 1 51 190.0 Tm (6. InfiltratorOS integration boundary) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 02) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (HISTORICAL CHRONOLOGY) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm (NTFS was introduced with Windows NT 3.1 in 1993, replacing the DOS-era FAT limitations for) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (a security-oriented, multiuser 32-bit operating system. It was designed for large volumes,) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (robust metadata management, access control, and extensible file representation. The New) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (Technology lineage and its attribute-oriented record structures are central to) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 608.0 Tm (understanding NTFS's design.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (Later Windows releases evolved NTFS through additional attributes, indexes, reparse) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (points, compression, encryption, change journals and transactional support. Third-party) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 544.0 Tm (access tools and Linux's different NTFS drivers have varied in capability, but the on-disk) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 527.0 Tm (format itself remains an independent Microsoft-defined system. A reader must distinguish) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 510.0 Tm (volume revision and supported features, not assume identical semantics in every NTFS) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 493.0 Tm (implementation.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 03) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (ORIGINAL ON-DISK ARCHITECTURE) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm (The NTFS volume boot sector contains geometry and the starting logical cluster numbers of) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (the Master File Table \($MFT\) and its mirror. The $MFT contains variable-sized file record) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (segments. Each file is represented by at least one record; even NTFS metadata files such) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (as $MFT, $Bitmap and $LogFile are represented as files. Records contain typed attributes,) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 608.0 Tm (which may be resident within the MFT record or nonresident elsewhere on the volume.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (A file record starts with a signature and a fixup array used to detect incomplete sector) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (writes. Attributes include $STANDARD_INFORMATION, $FILE_NAME, $DATA and other) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 544.0 Tm (type-specific records. Nonresident attributes use mapping pairs or runlists to identify) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 527.0 Tm (extents. Multiple named $DATA streams may belong to one file. NTFS's internal structure) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 510.0 Tm (must not be flattened to a single inode plus sequential sectors.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 04) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (ALLOCATION AND DIRECTORIES) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm ($Bitmap tracks which volume clusters are allocated. The MFT's own allocation and growth) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (are managed separately, with space reserved as an MFT zone to reduce fragmentation. Small) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (files can fit entirely in resident $DATA attributes, while larger files have nonresident) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (runs. Sparse and compressed attributes change logical-to-physical mapping and must be) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 608.0 Tm (interpreted using attribute flags and allocated sizes.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (Directories use indexed attributes such as $INDEX_ROOT and $INDEX_ALLOCATION, permitting) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (tree-based lookup and sorted enumeration. Hard links are represented through multiple) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 544.0 Tm ($FILE_NAME associations with file record identities. Security descriptors, object) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 527.0 Tm (identifiers and reparse points add metadata semantics not captured by a simple FAT-like) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 510.0 Tm (directory record.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 05) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (INTEGRITY AND RECOVERY) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm ($LogFile contains the NTFS metadata transaction log, with redo and undo information used) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (for consistency recovery. The volume dirty bit, update-sequence fixups, metadata) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (redundancy and transactional logging serve different purposes. NTFS does not guarantee) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (that all ordinary file data is journalled, and MFT mirroring covers only selected critical) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 608.0 Tm (records.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (Recovery requires considering log state, record sequence numbers, reference validity, MFT) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (allocation, attribute lists, runlists and directory indexes. Chkdsk-like structural repair) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 544.0 Tm (may be needed for damage beyond ordinary log replay. A cross-platform writer must not) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 527.0 Tm (alter a hibernated or fast-startup Windows volume as though it were cleanly unmounted.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 06) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (DESIGN RATIONALE AND LIMITATIONS) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm (NTFS invests more metadata and CPU work than FAT to support security, indexing, sparse) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (data, resident attributes and independent metadata streams. The attribute system permits) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (incremental evolution without changing every directory structure. Runlist compression and) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (variable-sized resident records complicate a forensic implementation.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 595.0 Tm (Features such as EFS encryption, compression, deduplication and reparse points can require) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (Windows-specific services or metadata interpretation. A parser able to enumerate basic MFT) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (entries is not automatically a safe complete writer, and a native Linux module must) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 544.0 Tm (qualify each supported attribute family separately.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 07) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (INFILTRATOROS INTEGRATION BOUNDARY) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm (NTFS.so is an independent format module and should not be confused with Microsoft's) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (Windows kernel driver or with ntfs3 and NTFS-3G provider identities. Its usable operations) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (and ABI must be proven against real MFT attributes, log state and independently formatted) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (Windows volumes.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 595.0 Tm (The historical design is documented from Microsoft developer materials. Our .deb, .run and) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 578.0 Tm (optional kernel adapter install files into InfiltratorOS directories, but those paths have) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 561.0 Tm (no bearing on actual NTFS disk geometry or transactional safety.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801.0 Tm (INFILTRATOR / ORIGINAL FILESYSTEM HISTORY AND DESIGN) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771.0 Tm (NTFS - Windows New Technology File System) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34.0 Tm (Filesystem-NTFS / researched original-format reference) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 512 34.0 Tm (PAGE 08) Tj ET
-BT /F2 14 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 711.0 Tm (PRIMARY SOURCE REFERENCES) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 676.0 Tm (These primary technical documents and near-contemporary references provide provenance for) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 659.0 Tm (the design history and on-disk structures. For exact field sizes or a particular format) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 642.0 Tm (revision, consult the original specifications and source code, not the conceptual cover) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 625.0 Tm (illustration.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 595.0 Tm (1. Microsoft: Master File Table, NTFS developer notes) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 565.0 Tm (https://learn.microsoft.com/en-us/windows/desktop/devnotes/master-file-table) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 535.0 Tm (2. Microsoft: Master File Table, local file systems overview) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 505.0 Tm (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 475.0 Tm (Our Common V2 .so, build procedures and test evidence describe a separate) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 458.0 Tm (implementation. The source-level history in this PDF cannot itself qualify production) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 441.0 Tm (writes, boot, recovery or cross-platform compatibility.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-0.75 0.82 0.85 RG .7 w 50 49 m 545 49 l S
-BT /F2 9 Tf 0.62 0.88 0.91 rg 1 0 0 1 50 800 Tm (INFILTRATOR / ORIGINAL FILESYSTEM ENGINEERING APPENDIX) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 770 Tm (NTFS / engineering detail) Tj ET
-BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 50 34 Tm (Original format research; consult primary references for normative fields) Tj ET
-BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 509 34 Tm (PAGE 09) Tj ET
-BT /F2 13.5 Tf 0.02 0.44 0.50 rg 1 0 0 1 50 710 Tm (DISK READ PATH / ENGINEERING NOTES) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 678 Tm (1. Read the NTFS volume boot record and validate bytes per sector, sectors per cluster,) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 661.5 Tm (volume bounds, and the logical cluster locations of the MFT and its mirror.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 635 Tm (2. Locate file record zero in the Master File Table. Check its FILE signature and update) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 618.5 Tm (sequence array before interpreting attributes; a torn multi-sector write must not be) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 602 Tm (treated as valid metadata.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 575.5 Tm (3. Walk typed attributes, respecting resident values inside the record and nonresident) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 559 Tm (data runs elsewhere. Attribute-list entries can extend one file across additional MFT) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 542.5 Tm (records.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 516 Tm (4. Decode nonresident runlists as variable-length signed LCN deltas and unsigned run) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 499.5 Tm (lengths. Virtual cluster numbers describe logical file order; a sparse run has no) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 483 Tm (physical cluster allocation.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 456.5 Tm (5. Resolve a directory through INDEX_ROOT and, where present, INDEX_ALLOCATION and its) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 440 Tm (bitmap. Check ordering, references and child nodes instead of assuming a flat directory) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 423.5 Tm (table.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 397 Tm (6. Follow FILE_NAME links with full MFT record references and sequence numbers. Several) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 380.5 Tm (names may legitimately refer to one file, and alternate data streams can share the same) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 364 Tm (file identity.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 337.5 Tm (7. Distinguish logical file size, initialized size and allocated size. Compression and) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 321 Tm (sparse attributes make those values and the physical extent count differ.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 294.5 Tm (8. Treat $MFT, $Bitmap, $LogFile, $BadClus and $Secure as distinct system files. Their) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 278 Tm (recorded allocation and journal state form part of the volume interpretation.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.01 0.52 0.56 rg 50 747 116 5 re f
-0.75 0.82 0.85 RG .7 w 50 49 m 545 49 l S
-BT /F2 9 Tf 0.62 0.88 0.91 rg 1 0 0 1 50 800 Tm (INFILTRATOR / ORIGINAL FILESYSTEM ENGINEERING APPENDIX) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 770 Tm (NTFS / engineering detail) Tj ET
-BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 50 34 Tm (Original format research; consult primary references for normative fields) Tj ET
-BT /F1 8 Tf 0.3 0.39 0.42 rg 1 0 0 1 509 34 Tm (PAGE 10) Tj ET
-BT /F2 13.5 Tf 0.02 0.44 0.50 rg 1 0 0 1 50 710 Tm (VALIDATION, RECOVERY AND COMPATIBILITY) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 678 Tm (1. Check the volume dirty state and any hibernation or Fast Startup evidence before) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 661.5 Tm (considering writes from a non-Windows implementation. A clean directory listing is not) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 645 Tm (sufficient.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 618.5 Tm (2. Validate update-sequence fixups on every multi-sector MFT or index record. These are) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 602 Tm (torn-write detectors, not replacement checksums for arbitrary file contents.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 575.5 Tm (3. Check that every runlist terminates within volume bounds and that nonresident) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 559 Tm (attributes have coherent VCN ranges. Reject negative or overflowed physical mappings.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 532.5 Tm (4. Respect record sequence numbers when resolving a file reference. Reused MFT slots can) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 516 Tm (make an old numeric record address point at a different file.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 489.5 Tm (5. Replay of $LogFile is not the same operation as analysing $UsnJrnl. The former) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 473 Tm (supports metadata consistency; the latter records change history for consumers.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 446.5 Tm (6. Verify directory index entries against the file records they name. An apparently) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 430 Tm (readable index page can still contain stale or inconsistent references.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 403.5 Tm (7. Never assume $MFTMirr holds the entire MFT. It mirrors only a limited set of critical) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 387 Tm (records, so recovery cannot be based on it as a complete backup.) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 360.5 Tm (8. For damaged media, preserve an image, report conflicting references and distinguish) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 344 Tm (journal replay from destructive filesystem repair. The Microsoft format references remain) Tj ET
-BT /F1 10 Tf 0.09 0.16 0.24 rg 1 0 0 1 55 327.5 Tm (authoritative.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801 Tm (INFILTRATOR / IMPLEMENTATION REFERENCE) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771 Tm (NTFS / Common V2 provider) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34 Tm (Implementation appendix / source revision f87572403218) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 505 34 Tm (PAGE 11) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 710 Tm (1. PURPOSE AND FORMAT SCOPE) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 686 Tm (NTFS, including native NTFS 3.1 data-volume formatting. This repository) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 671 Tm (owns the format-specific implementation of NTFS.so for InfiltratorOS.) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 641 Tm (2. ON-DISK ARCHITECTURE AND INVARIANTS) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 617 Tm (Boot geometry, master file table, allocation bitmap, attributes and) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 602 Tm (runlists define file and allocation ownership. Update-sequence fixups) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 587 Tm (validate torn-write protection, including 512-byte subrecords within) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 572 Tm (genuine 4Kn media. Resident data has no separate physical extent; sparse) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 557 Tm (mappings contain logical gaps.) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 527 Tm (3. COMMON V2 IMPLEMENTATION AND CAPABILITIES) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 503 Tm (Hosted Common V2 declares probe, mount, stat, list, read, format, volume) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 488 Tm (query and label retrieval; the native extent mapping interface is) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 473 Tm (read-only. Format accepts 512, 1024, 2048 and 4096-byte logical sectors) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 458 Tm (and up to 128 UTF-16 label code units. The formatter integrates adapted) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 443 Tm (NTFS-3G source into the same SO, not a separately installed FUSE library.) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 428 Tm (Formatting is serialised against mounted readers. Firmware reader) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 413 Tm (qualification is distinct from production BOOT acceptance. The canonical) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 398 Tm (entry point is infiltrator_filesystem_api_v2. Consumers must negotiate the) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 383 Tm (actual profile and operation masks and use bounded, partition-relative) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 368 Tm (host I/O. A source-level callback does not by itself establish that every) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 353 Tm (format variant or host profile is qualified.) Tj ET
-
-%%Page
-0.05 0.13 0.22 rg 0 749 595 93 re f
-0.04 0.54 0.60 rg 50 747 115 4 re f
-0.78 0.82 0.86 RG 0.6 w 50 50 m 545 50 l S
-BT /F2 9 Tf 0.62 0.86 0.90 rg 1 0 0 1 50 801 Tm (INFILTRATOR / IMPLEMENTATION REFERENCE) Tj ET
-BT /F2 19 Tf 1 1 1 rg 1 0 0 1 50 771 Tm (NTFS / Common V2 provider) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 50 34 Tm (Implementation appendix / source revision f87572403218) Tj ET
-BT /F1 8 Tf 0.34 0.40 0.44 rg 1 0 0 1 505 34 Tm (PAGE 12) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 710 Tm (4. INTEGRITY, MUTATION, ALLOCATION AND RECOVERY) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 686 Tm (Compressed, encrypted and reparse-point files are outside the documented) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 671 Tm (physical-map contract. Formatting leaves unallocated sectors untouched;) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 656 Tm (full writable namespace, relocation, recovery and physical-media crash) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 641 Tm (safety are separate qualifications. For destructive operations, require) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 626 Tm (the applicable exclusive writable host, durability contract and) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 611 Tm (format-specific validation. Never silently substitute a kernel or FUSE) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 596 Tm (driver or treat a rejected or unavailable operation as success. Preserve) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 581 Tm (original disk-format semantics; relocation and recovery are separate from) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 566 Tm (ordinary file I/O.) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 536 Tm (5. BUILD, INSTALLATION AND RELEASE) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 512 Tm (The target installation is /System/Filesystems/NTFS.so and) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 497 Tm (/System/Resources/Documentation/Filesystem-NTFS.pdf. The project release) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 482 Tm (policy is a portable amd64 DEB and a CPU-native source-first RUN, with) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 467 Tm (GitHub's automatic source archive; do not treat this policy statement as) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 452 Tm (verification of the current installer payload. The release workflow is the) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 437 Tm (authoritative executable build and package specification. Historical) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 422 Tm (adapters and test artifacts are not additional production filesystem) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 407 Tm (authorities.) Tj ET
-BT /F2 13 Tf 0.02 0.45 0.50 rg 1 0 0 1 50 377 Tm (6. QUALIFICATION AND LIMITATIONS) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 353 Tm (Recorded qualification workflow) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 338 Tm (\(https://github.com/Infiltrator-Projects/Filesystem-NTFS/actions/runs/4552) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 323 Tm (6878687\) | Current workflows) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 308 Tm (\(https://github.com/Infiltrator-Projects/Filesystem-NTFS/actions?query=bra) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 293 Tm (nch%3Amain\). A successful workflow establishes the tested scope only, not) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 278 Tm (complete original-format parity, physical-media crash safety, or) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 263 Tm (production BOOT/kernel integration. Use disposable images for destructive) Tj ET
-BT /F1 10.2 Tf 0.07 0.16 0.23 rg 1 0 0 1 50 248 Tm (qualification.) Tj ET
+0.06 0.15 0.23 rg 0 768 595 74 re f
+1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
+BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
+0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (16. Formatting and validation) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (A formatter must publish coherent primary and backup boot geometry, MFT and mirror,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (reserved system records, root index, allocation bitmaps, attribute definitions, log) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (initialization, uppercase mapping and security metadata. Verify independently) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (formatted Windows and NTFS-3G fixtures at admitted sector and cluster sizes,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (including 4Kn, fragmented MFTs, multiple streams, extension records, sparse runs,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (compression, hard links, non-ASCII names, index splits, stale sequences, fixup) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (mismatches and interrupted mutations. Use native chkdsk and read-only reference) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (comparisons on disposable copies; no external production formatter or filesystem) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (driver fallback is implied. Sources:) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 \(ntfs.h, run.c, fsntfs.c,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (record.c, index.c, fslog.c\);) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 552 Td (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table . ) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 528 Td (The PDF preserves the earlier manual as a historical appendix.) Tj ET
+0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 17) Tj ET
