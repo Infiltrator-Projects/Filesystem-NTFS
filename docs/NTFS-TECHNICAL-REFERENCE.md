@@ -2,9 +2,9 @@
 
 ## History, revision and design
 
-NTFS arrived with Windows NT 3.1 in 1993. NTFS 3.0 and 3.1 were introduced with Windows 2000 and Windows XP respectively; operating-system release numbers are not filesystem revision numbers. This reference uses the Linux v6.12 ntfs3 format definitions as implementation evidence and Microsoft documentation for filesystem semantics. An NTFS volume is an attribute-based record store: the Master File Table maps record identities, and attributes may store bytes within records or in separate cluster runs. Directory indexes, metadata allocation and transaction recovery must be interpreted together. A reader that extracts the unnamed data stream is not necessarily a full NTFS implementation.
+NTFS arrived with Windows NT 3.1 in 1993 as a security-oriented multiuser filesystem, with greater metadata complexity than FAT. NTFS 3.0 and 3.1 appeared with Windows 2000 and Windows XP respectively; OS release numbers are not filesystem revision numbers. This reference uses Linux v6.12 ntfs3 definitions as implementation evidence and Microsoft documentation for native semantics.
 
-NTFS was designed for a security-oriented multiuser operating system, with a cost in metadata complexity relative to FAT. Later Windows features such as deduplication and reparse services may depend on additional OS semantics.
+An NTFS volume is an attribute-based record store: the Master File Table maps record identities, while attributes store bytes within records or in separate cluster runs. Directory indexes, metadata allocation and transaction recovery must be interpreted together. A reader of the unnamed data stream is not a complete NTFS implementation. Later features such as deduplication and reparse services can depend on additional OS semantics.
 
 ## Boot sector and address units
 
@@ -68,6 +68,6 @@ Historical source or test reference: https://github.com/Infiltrator-Projects/Fil
 
 ## Formatting and validation
 
-A formatter must publish coherent primary and backup boot geometry, MFT and mirror, reserved system records, root index, allocation bitmaps, attribute definitions, log initialization, uppercase mapping and security metadata. Verify independently formatted Windows and NTFS-3G fixtures at admitted sector and cluster sizes, including 4Kn, fragmented MFTs, multiple streams, extension records, sparse runs, compression, hard links, non-ASCII names, index splits, stale sequences, fixup mismatches and interrupted mutations. Use native chkdsk and read-only reference comparisons on disposable copies; no external production formatter or filesystem driver fallback is implied. Sources: https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 (ntfs.h, run.c, fsntfs.c, record.c, index.c, fslog.c); https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table . 
+A formatter must publish coherent primary and backup boot geometry, MFT and mirror, reserved system records, root index, allocation bitmaps, attribute definitions, log initialization, uppercase mapping and security metadata. Verify independently formatted Windows and NTFS-3G fixtures at admitted sector and cluster sizes, including 4Kn, fragmented MFTs, multiple streams, extension records, sparse runs, compression, hard links, non-ASCII names, index splits, stale sequences, fixup mismatches and interrupted mutations. Use native chkdsk and read-only reference comparisons on disposable copies; no external production formatter or filesystem driver fallback is implied.
 
-The PDF preserves the earlier manual as a historical appendix.
+Sources: https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 (ntfs.h, run.c, fsntfs.c, record.c, index.c, fslog.c); https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table . Historical implementation evidence is identified in Implementation and qualification boundary; the active manual contains no separate appended old manual.

@@ -25,18 +25,18 @@ BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
 1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
 BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
 0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (1. History, revision and design) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (NTFS arrived with Windows NT 3.1 in 1993. NTFS 3.0 and 3.1 were introduced with) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (Windows 2000 and Windows XP respectively; operating-system release numbers are not) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (filesystem revision numbers. This reference uses the Linux v6.12 ntfs3 format) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (definitions as implementation evidence and Microsoft documentation for filesystem) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (semantics. An NTFS volume is an attribute-based record store: the Master File Table) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (maps record identities, and attributes may store bytes within records or in) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (separate cluster runs. Directory indexes, metadata allocation and transaction) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (recovery must be interpreted together. A reader that extracts the unnamed data) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (stream is not necessarily a full NTFS implementation.) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 570 Td (NTFS was designed for a security-oriented multiuser operating system, with a cost) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 556 Td (in metadata complexity relative to FAT. Later Windows features such as) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 542 Td (deduplication and reparse services may depend on additional OS semantics.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (NTFS arrived with Windows NT 3.1 in 1993 as a security-oriented multiuser) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (filesystem, with greater metadata complexity than FAT. NTFS 3.0 and 3.1) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (appeared with Windows 2000 and Windows XP respectively; OS release numbers are) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (not filesystem revision numbers. This reference uses Linux v6.12 ntfs3) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (definitions as implementation evidence and Microsoft documentation for native) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (semantics.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 612 Td (An NTFS volume is an attribute-based record store: the Master File Table maps) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 598 Td (record identities, while attributes store bytes within records or in separate) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 584 Td (cluster runs. Directory indexes, metadata allocation and transaction recovery) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 570 Td (must be interpreted together. A reader of the unnamed data stream is not a) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 556 Td (complete NTFS implementation. Later features such as deduplication and reparse) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 542 Td (services can depend on additional OS semantics.) Tj ET
 0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 2) Tj ET
 
 %%Page
@@ -290,17 +290,19 @@ BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
 1 1 1 rg BT /F2 10 Tf 43 811 Td (INFILTRATOR / FILESYSTEM ENGINEERING) Tj ET
 BT /F2 22 Tf 43 784 Td (NTFS - technical reference) Tj ET
 0.08 0.14 0.20 rg BT /F2 15 Tf 43 736 Td (16. Formatting and validation) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (A formatter must publish coherent primary and backup boot geometry, MFT and mirror,) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (reserved system records, root index, allocation bitmaps, attribute definitions, log) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (initialization, uppercase mapping and security metadata. Verify independently) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (formatted Windows and NTFS-3G fixtures at admitted sector and cluster sizes,) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (including 4Kn, fragmented MFTs, multiple streams, extension records, sparse runs,) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (compression, hard links, non-ASCII names, index splits, stale sequences, fixup) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (mismatches and interrupted mutations. Use native chkdsk and read-only reference) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (comparisons on disposable copies; no external production formatter or filesystem) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (driver fallback is implied. Sources:) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 580 Td (https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 \(ntfs.h, run.c, fsntfs.c,) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 566 Td (record.c, index.c, fslog.c\);) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 552 Td (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table . ) Tj ET
-0.08 0.14 0.20 rg BT /F3 10 Tf 43 528 Td (The PDF preserves the earlier manual as a historical appendix.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 706 Td (A formatter must publish coherent primary and backup boot geometry, MFT and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 692 Td (mirror, reserved system records, root index, allocation bitmaps, attribute) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 678 Td (definitions, log initialization, uppercase mapping and security metadata.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 664 Td (Verify independently formatted Windows and NTFS-3G fixtures at admitted sector) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 650 Td (and cluster sizes, including 4Kn, fragmented MFTs, multiple streams, extension) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 636 Td (records, sparse runs, compression, hard links, non-ASCII names, index splits,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 622 Td (stale sequences, fixup mismatches and interrupted mutations. Use native chkdsk) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 608 Td (and read-only reference comparisons on disposable copies; no external) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 594 Td (production formatter or filesystem driver fallback is implied.) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 570 Td (Sources: https://github.com/torvalds/linux/tree/v6.12/fs/ntfs3 \(ntfs.h, run.c,) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 556 Td (fsntfs.c, record.c, index.c, fslog.c\);) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 542 Td (https://learn.microsoft.com/en-us/windows/win32/fileio/master-file-table .) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 528 Td (Historical implementation evidence is identified in Implementation and) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 514 Td (qualification boundary; the active manual contains no separate appended old) Tj ET
+0.08 0.14 0.20 rg BT /F3 10 Tf 43 500 Td (manual.) Tj ET
 0.2 0.3 0.4 rg BT /F1 9 Tf 43 32 Td (Historical development and engineering reference | 17) Tj ET
