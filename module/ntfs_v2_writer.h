@@ -9,5 +9,6 @@ int ifs_ntfs_writer_open(const IfsFsHostRuntimeV2 *,IfsNtfsWriter **);
 int ifs_ntfs_writer_create(IfsNtfsWriter *,const char *,uint32_t);
 int ifs_ntfs_writer_write(IfsNtfsWriter *,const char *,uint64_t,const void *,uint32_t);
 int ifs_ntfs_writer_remove(IfsNtfsWriter *,const char *);
+int ifs_ntfs_writer_truncate(IfsNtfsWriter *,const char *,uint64_t);
 int ifs_ntfs_writer_close(IfsNtfsWriter *,int);
 #endif

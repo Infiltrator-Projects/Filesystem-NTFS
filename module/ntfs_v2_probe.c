@@ -626,17 +626,27 @@ static int remove_file(void *handle,const char *path)
     if(v && rc==IFS_FS_IO_ERROR)v->fault=1;
     return leave_operation(rc);
 }
+static int truncate_file(void *handle,const char *path,uint64_t length)
+{
+    if(!enter_operation())return IFS_FS_BUSY;
+    MountedNtfs *v=find_volume(handle);
+    int rc=ensure_writer(v);
+    if(rc==IFS_FS_OK)rc=ifs_ntfs_writer_truncate(v->writer,path,length);
+    if(v && rc==IFS_FS_IO_ERROR)v->fault=1;
+    return leave_operation(rc);
+}
 static const IfsFsCoreOpsV2 core = {
     .header = { IFS_FS_GROUP_ABI_V2, sizeof(IfsFsCoreOpsV2),
                 IFS_FS_GROUP_CORE, 0u, IFS_FS_CORE_PROBE | IFS_FS_CORE_MOUNT |
                 IFS_FS_CORE_STAT | IFS_FS_CORE_LIST | IFS_FS_CORE_READ |
-                IFS_FS_CORE_CREATE | IFS_FS_CORE_WRITE | IFS_FS_CORE_REMOVE },
+                IFS_FS_CORE_CREATE | IFS_FS_CORE_WRITE | IFS_FS_CORE_REMOVE | IFS_FS_CORE_TRUNCATE },
     .probe = ntfs_disk_probe,
     .mount = native_mount,
     .unmount = native_unmount,
     .stat = stat_file,
     .directory_entry = list_file,
-    .read = read_file,.create=create_file,.write=write_file,.remove=remove_file
+    .read = read_file,.create=create_file,.write=write_file,.remove=remove_file,
+    .truncate=truncate_file
 };
 static const IfsFsGroupHeaderV2 *query(uint32_t id, uint32_t lo, uint32_t hi) {
     if (lo > IFS_FS_GROUP_ABI_V2 || hi < IFS_FS_GROUP_ABI_V2)

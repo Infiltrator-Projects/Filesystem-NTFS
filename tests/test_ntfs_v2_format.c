@@ -613,7 +613,7 @@ static int check_writable(const char *path)
     const IfsFsVolumeOpsV2 *volume=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_VOLUME);
     const IfsFsDefragOpsV2 *defrag=(const void *)ifs_fs_group_v2(api,IFS_FS_GROUP_DEFRAG);
     CHECK(image.fd>=0 && ftruncate(image.fd,IMAGE_BYTES)==0);
-    CHECK(core && core->create && core->write && core->remove && defrag && defrag->map);
+    CHECK(core && core->create && core->write && core->remove && core->truncate && defrag && defrag->map);
     IfsFsHostRuntimeV2 host={
         .abi_version=IFS_FS_HOST_ABI_V2,.structure_bytes=sizeof(host),
         .capabilities=IFS_FS_HOST_EXCLUSIVE|IFS_FS_HOST_DURABLE,
@@ -637,6 +637,15 @@ static int check_writable(const char *path)
     for(size_t i=0;i<sizeof(small);++i)small[i]=(uint8_t)(i*23u+9u);
     CHECK(core->create(mounted,"/RESIDENT.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
     CHECK(core->write(mounted,"/RESIDENT.BIN",0,small,sizeof(small))==IFS_FS_OK);
+    /* Grow across the resident/nonresident boundary, then shrink and
+     * regrow. Discarded data must never reappear after a cold remount. */
+    CHECK(core->create(mounted,"/RESIZE.BIN",IFS_FS_ENTRY_FILE)==IFS_FS_OK);
+    CHECK(core->write(mounted,"/RESIZE.BIN",0,small,sizeof(small))==IFS_FS_OK);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",8192u)==IFS_FS_OK);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",100u)==IFS_FS_OK);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",8192u)==IFS_FS_OK);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",UINT64_MAX)==IFS_FS_INVALID);
+    CHECK(core->truncate(mounted,"/MISSING.BIN",0u)==IFS_FS_NOT_FOUND);
     /* Exercise the provider's native directory indices and nested writes;
      * invalid components must not turn into host paths or metadata writes. */
     CHECK(core->create(mounted,"/V2-DIR",IFS_FS_ENTRY_DIRECTORY)==IFS_FS_OK);
@@ -685,6 +694,7 @@ static int check_writable(const char *path)
     CHECK(defrag->plan(mounted,"/",10u,&second)==IFS_FS_BUSY && !second);
     CHECK(core->write(mounted,"/V2-A.BIN",0u,payload,1u)==IFS_FS_BUSY);
     CHECK(core->remove(mounted,"/V2-B.BIN")==IFS_FS_BUSY);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",0u)==IFS_FS_BUSY);
     defrag->release_plan(mounted,plan);
     CHECK(defrag->plan(mounted,"/V2-A.BIN",10u,&second)==IFS_FS_OK && second && second!=plan);
     defrag->release_plan(mounted,plan);
@@ -712,6 +722,12 @@ static int check_writable(const char *path)
     char nested_name[256];
     IfsFsEntryV2 nested={.structure_bytes=sizeof(nested),.name=nested_name,
                          .name_capacity=sizeof(nested_name)};
+    CHECK(core->stat(mounted,"/RESIZE.BIN",&nested)==IFS_FS_OK &&
+          nested.size_bytes==8192u);
+    memset(actual,0xff,8192u);
+    CHECK(core->read(mounted,"/RESIZE.BIN",0u,actual,8192u)==IFS_FS_OK);
+    CHECK(!memcmp(actual,small,100u));
+    for(size_t i=100u;i<8192u;++i)CHECK(actual[i]==0u);
     CHECK(core->stat(mounted,"/V2-DIR/SUB",&nested)==IFS_FS_OK &&
           nested.type==IFS_FS_ENTRY_DIRECTORY);
     CHECK(core->stat(mounted,"/V2-DIR/SUB/DATA.BIN",&nested)==IFS_FS_OK &&
@@ -744,6 +760,7 @@ static int check_writable(const char *path)
     CHECK(core->write(mounted,"/V2-A.BIN",0,payload,sizeof(payload))==IFS_FS_ACCESS);
     CHECK(core->create(mounted,"/REFUSED",IFS_FS_ENTRY_FILE)==IFS_FS_ACCESS);
     CHECK(core->remove(mounted,"/V2-DIR/SUB/DATA.BIN")==IFS_FS_ACCESS);
+    CHECK(core->truncate(mounted,"/RESIZE.BIN",0u)==IFS_FS_ACCESS);
     CHECK(image.writes==before);
     CHECK(core->unmount(mounted)==IFS_FS_OK);mounted=NULL;
     status=0;

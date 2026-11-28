@@ -300,6 +300,62 @@ done:
     if(ntfs_inode_close(file)){w->fault=1;rc=IFS_FS_IO_ERROR;}
     return w->fault?IFS_FS_IO_ERROR:rc;
 }
+/* Resize only the ordinary unnamed data stream. Shrinking uses the
+ * native allocation engine; growth writes explicitly initialized zeroes
+ * rather than exposing stale disk bytes or silently creating sparse files.
+ * An interrupted mutation poisons this writer and leaves the volume dirty.
+ * All I/O remains inside the exclusive Common V2 host lease. */
+int ifs_ntfs_writer_truncate(IfsNtfsWriter *w,const char *path,uint64_t length)
+{
+    int rc=writable(w);if(rc!=IFS_FS_OK)return rc;
+    if(length>INT64_MAX)return IFS_FS_INVALID;
+    if(length>w->host->volume_bytes)return IFS_FS_NO_SPACE;
+    ntfschar name[255];u8 count=0;
+    ntfs_inode *parent=NULL;
+    rc=parent_inode(w,path,&parent,name,&count);
+    if(rc!=IFS_FS_OK)return rc;
+    rc=close_inode(w,parent);
+    if(rc!=IFS_FS_OK)return rc;
+    ntfs_inode *file=ntfs_pathname_to_inode(w->volume,NULL,path);
+    if(!file)return lookup_error();
+    ntfs_attr *stream=NULL;
+    rc=IFS_FS_UNSUPPORTED;
+    if(file->mft_no<24u || !file->mrec ||
+       (le16_to_cpu(file->mrec->flags)&NTFS_RECORD_DIRECTORY) ||
+       (file->flags&(FILE_ATTR_DIRECTORY|FILE_ATTR_REPARSE_POINT|
+                     FILE_ATTR_ENCRYPTED|FILE_ATTR_COMPRESSED|
+                     FILE_ATTR_SPARSE_FILE|FILE_ATTR_READONLY)))goto done;
+    stream=ntfs_attr_open(file,AT_DATA,AT_UNNAMED,0);
+    if(!stream){rc=IFS_FS_IO_ERROR;goto done;}
+    if(stream->data_size<0){rc=IFS_FS_CORRUPT;goto done;}
+    uint64_t at=(uint64_t)stream->data_size;
+    if(length<at) {
+        if(ntfs_attr_truncate_solid(stream,(s64)length)) {
+            w->fault=1;rc=IFS_FS_IO_ERROR;goto done;
+        }
+    } else if(length>at) {
+        static const uint8_t zeroes[4096]={0};
+        const uint64_t original=at;
+        while(at<length) {
+            if(w->host->cancelled && w->host->cancelled(w->host->context)) {
+                if(at!=original){w->fault=1;rc=IFS_FS_IO_ERROR;}
+                else rc=IFS_FS_BUSY;
+                goto done;
+            }
+            const uint32_t n=length-at>sizeof(zeroes)?sizeof(zeroes):(uint32_t)(length-at);
+            if(ntfs_attr_pwrite(stream,(s64)at,(s64)n,zeroes)!=(s64)n) {
+                w->fault=1;rc=IFS_FS_IO_ERROR;goto done;
+            }
+            at+=n;
+        }
+    }
+    rc=IFS_FS_OK;
+done:
+    if(stream)ntfs_attr_close(stream);
+    if(close_inode(w,file)!=IFS_FS_OK)rc=IFS_FS_IO_ERROR;
+    return w->fault?IFS_FS_IO_ERROR:rc;
+}
+
 /* Unlink using the native NTFS index and allocation engine. The caller
  * owns the exclusive durable lease. The native delete consumes BOTH inode
  * references on success or failure; closing them again would be unsafe.
